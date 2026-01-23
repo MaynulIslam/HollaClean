@@ -197,8 +197,7 @@ Easily customize for your home cleaning market:
 - Service radius
 
 ## 🤝 Contributing
-
-Contributions welcome! Help us improve the home cleaning marketplace.
+One and Only @Abir Vai
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/HomeCleaningFeature`)
@@ -223,15 +222,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Discussions:** [GitHub Discussions](https://github.com/yourusername/hollaclean/discussions)
 - **Email:** support@hollaclean.com
 
-## 🚀 Live Demo
-
-[View Live Demo](https://hollaclean.vercel.app) *(coming soon)*
-
 ---
-
-**Built with ❤️ for homeowners and residential cleaning professionals**
-
-*Ready to launch your own personal home cleaning marketplace? Fork this repo and connect homeowners with trusted cleaners in minutes!*
 
 ### 🏡 Perfect for:
 - Personal home cleaning services
