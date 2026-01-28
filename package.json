@@ -1,6 +1,6 @@
 {
   "name": "hollaclean",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "description": "Professional cleaning marketplace connecting homeowners with trusted cleaning professionals",
   "main": "index.js",
