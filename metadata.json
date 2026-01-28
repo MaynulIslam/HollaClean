@@ -1,0 +1,7 @@
+{
+  "name": "HollaClean",
+  "description": "A production-ready home cleaning marketplace PWA connecting homeowners with trusted cleaners in Ontario, Canada.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
