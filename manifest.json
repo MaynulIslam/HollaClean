@@ -1,0 +1,18 @@
+
+{
+  "name": "HollaClean - Home Cleaning Marketplace",
+  "short_name": "HollaClean",
+  "description": "Connect with trusted home cleaning professionals in Ontario",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#9333ea",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/995/995053.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
