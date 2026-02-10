@@ -3,10 +3,15 @@ import React, { useState, useEffect } from 'react';
 import { CleaningRequest, User, ServiceOffer } from '../types';
 import { storage } from '../utils/storage';
 import { Card, Badge, Button, Input } from './UI';
-import { 
-  Shield, Users, Layers, TrendingUp, DollarSign, 
+import AdminFinance from './AdminFinance';
+import {
+  getReminderConfig, setReminderConfig, getReminderLogs,
+  ReminderConfig, ReminderLog
+} from '../utils/reminderService';
+import {
+  Shield, Users, Layers, TrendingUp, DollarSign,
   Briefcase, Plus, Trash2, Edit2, LogOut, Search, Download, X, Receipt,
-  MapPin, Lock, CreditCard, Landmark, Info
+  MapPin, Lock, CreditCard, Landmark, Info, Wallet, Bell, Save, ToggleLeft, ToggleRight, Mail, Clock
 } from 'lucide-react';
 
 interface Props {
@@ -14,7 +19,7 @@ interface Props {
   isAdmin?: boolean;
 }
 
-type AdminTab = 'requests' | 'services' | 'homeowners' | 'cleaners' | 'payments';
+type AdminTab = 'requests' | 'services' | 'homeowners' | 'cleaners' | 'payments' | 'finance' | 'reminders';
 
 const AdminDashboard: React.FC<Props> = ({ onBack }) => {
   const [authenticated, setAuthenticated] = useState(false);
@@ -28,6 +33,12 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
   const [homeowners, setHomeowners] = useState<User[]>([]);
   const [cleaners, setCleaners] = useState<User[]>([]);
   const [stats, setStats] = useState({ revenue: 0, requests: 0, homeowners: 0, cleaners: 0 });
+
+  // Reminder states
+  const [reminderConfig, setReminderConfigState] = useState<ReminderConfig | null>(null);
+  const [reminderLogs, setReminderLogs] = useState<ReminderLog[]>([]);
+  const [reminderSaving, setReminderSaving] = useState(false);
+  const [reminderSaved, setReminderSaved] = useState(false);
 
   // Service Modal state
   const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
@@ -80,8 +91,18 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
     setRequests(allReqs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
   };
 
+  const loadReminders = async () => {
+    const config = await getReminderConfig();
+    setReminderConfigState(config);
+    const logs = await getReminderLogs();
+    setReminderLogs(logs);
+  };
+
   useEffect(() => {
-    if (authenticated) loadAll();
+    if (authenticated) {
+      loadAll();
+      loadReminders();
+    }
   }, [authenticated]);
 
   // Service CRUD
@@ -199,6 +220,16 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleSaveReminders = async () => {
+    if (!reminderConfig) return;
+    setReminderSaving(true);
+    setReminderSaved(false);
+    await setReminderConfig(reminderConfig);
+    setReminderSaving(false);
+    setReminderSaved(true);
+    setTimeout(() => setReminderSaved(false), 3000);
   };
 
   const filteredRequests = requests.filter(req => {
@@ -409,11 +440,246 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
             </Card>
           </div>
         );
+      case 'finance':
+        return <AdminFinance />;
+      case 'reminders': {
+        const activeLogs = reminderLogs.filter(l => !l.stoppedReason);
+        const stoppedLogs = reminderLogs.filter(l => !!l.stoppedReason);
+        return (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-3xl font-bold">Payment Reminders</h2>
+              <p className="text-gray-500 text-sm">Configure automatic payment reminder notifications for homeowners.</p>
+            </div>
+
+            {/* Reminder Settings */}
+            <Card className="p-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Bell className="w-5 h-5 text-purple-600" />
+                  <h3 className="text-lg font-bold text-gray-900">Reminder Settings</h3>
+                </div>
+                {reminderConfig && (
+                  <button
+                    onClick={() => setReminderConfigState({ ...reminderConfig, enabled: !reminderConfig.enabled })}
+                    className="flex items-center gap-2"
+                  >
+                    {reminderConfig.enabled ? (
+                      <ToggleRight className="w-8 h-8 text-green-500" />
+                    ) : (
+                      <ToggleLeft className="w-8 h-8 text-gray-400" />
+                    )}
+                    <span className={`text-sm font-bold ${reminderConfig.enabled ? 'text-green-600' : 'text-gray-400'}`}>
+                      {reminderConfig.enabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                  </button>
+                )}
+              </div>
+
+              {reminderConfig && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-xs font-bold uppercase text-gray-400 tracking-wider block mb-2">Interval (minutes)</label>
+                    <input
+                      type="number"
+                      min={5}
+                      max={120}
+                      value={reminderConfig.intervalMinutes}
+                      onChange={e => setReminderConfigState({ ...reminderConfig, intervalMinutes: Number(e.target.value) })}
+                      className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 focus:border-purple-500 outline-none transition-all"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Time between each reminder</p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold uppercase text-gray-400 tracking-wider block mb-2">Start (hours before)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={24}
+                      value={reminderConfig.startHoursBefore}
+                      onChange={e => setReminderConfigState({ ...reminderConfig, startHoursBefore: Number(e.target.value) })}
+                      className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 focus:border-purple-500 outline-none transition-all"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Hours before scheduled cleaning</p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold uppercase text-gray-400 tracking-wider block mb-2">Max Reminders</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={reminderConfig.maxReminders}
+                      onChange={e => setReminderConfigState({ ...reminderConfig, maxReminders: Number(e.target.value) })}
+                      className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 focus:border-purple-500 outline-none transition-all"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Maximum reminders per request</p>
+                  </div>
+                </div>
+              )}
+            </Card>
+
+            {/* Admin Notifications */}
+            <Card className="p-6 space-y-6">
+              <div className="flex items-center gap-3">
+                <Mail className="w-5 h-5 text-purple-600" />
+                <h3 className="text-lg font-bold text-gray-900">Admin Notifications</h3>
+              </div>
+
+              {reminderConfig && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-xs font-bold uppercase text-gray-400 tracking-wider block mb-2">Admin Email</label>
+                    <input
+                      type="email"
+                      value={reminderConfig.adminEmail}
+                      onChange={e => setReminderConfigState({ ...reminderConfig, adminEmail: e.target.value })}
+                      placeholder="admin@hollaclean.ca"
+                      className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 focus:border-purple-500 outline-none transition-all"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Receive email alerts for platform events</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {[
+                      { key: 'adminNotifyOnRegistration' as const, label: 'New Registrations', desc: 'When a user signs up' },
+                      { key: 'adminNotifyOnPayment' as const, label: 'Payments', desc: 'When a payment is made' },
+                      { key: 'adminNotifyOnCompletion' as const, label: 'Job Completions', desc: 'When a job is completed' },
+                    ].map(item => (
+                      <button
+                        key={item.key}
+                        onClick={() => setReminderConfigState({ ...reminderConfig, [item.key]: !reminderConfig[item.key] })}
+                        className={`p-4 rounded-xl border-2 text-left transition-all ${
+                          reminderConfig[item.key]
+                            ? 'border-purple-500 bg-purple-50'
+                            : 'border-gray-100 bg-white hover:border-gray-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-bold text-gray-900">{item.label}</span>
+                          {reminderConfig[item.key] ? (
+                            <ToggleRight className="w-5 h-5 text-purple-600" />
+                          ) : (
+                            <ToggleLeft className="w-5 h-5 text-gray-400" />
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500">{item.desc}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+
+            {/* Save Button */}
+            <div className="flex items-center gap-3">
+              <Button onClick={handleSaveReminders} disabled={reminderSaving} className="flex items-center gap-2">
+                <Save className="w-4 h-4" />
+                {reminderSaving ? 'Saving...' : 'Save Settings'}
+              </Button>
+              {reminderSaved && (
+                <span className="text-sm text-green-600 font-semibold animate-in fade-in duration-200">Settings saved!</span>
+              )}
+            </div>
+
+            {/* Active Reminders Table */}
+            <Card className="p-0 overflow-hidden">
+              <div className="p-6 border-b border-gray-100">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Clock className="w-5 h-5 text-amber-500" />
+                    <h3 className="text-lg font-bold text-gray-900">Active Reminders</h3>
+                    <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold">{activeLogs.length}</span>
+                  </div>
+                  <button onClick={loadReminders} className="text-xs text-purple-600 font-bold hover:underline">Refresh</button>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                    <tr>
+                      <th className="px-6 py-4">Request ID</th>
+                      <th className="px-6 py-4">Reminders Sent</th>
+                      <th className="px-6 py-4">Last Sent</th>
+                      <th className="px-6 py-4">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {activeLogs.length > 0 ? activeLogs.map(log => (
+                      <tr key={log.requestId} className="hover:bg-gray-50/50 transition-colors">
+                        <td className="px-6 py-4 font-mono text-[10px] text-gray-400">{log.requestId.slice(-8)}</td>
+                        <td className="px-6 py-4">
+                          <span className="text-sm font-bold text-amber-600">{log.totalSent}</span>
+                          <span className="text-xs text-gray-400 ml-1">sent</span>
+                        </td>
+                        <td className="px-6 py-4 text-xs text-gray-500">
+                          {log.lastSentAt ? new Date(log.lastSentAt).toLocaleString('en-CA', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '-'}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-bold">Pending Payment</span>
+                        </td>
+                      </tr>
+                    )) : (
+                      <tr>
+                        <td colSpan={4} className="px-6 py-12 text-center text-gray-400">No active reminders — all homeowners have paid on time!</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            {/* Completed/Stopped Reminders */}
+            {stoppedLogs.length > 0 && (
+              <Card className="p-0 overflow-hidden">
+                <div className="p-6 border-b border-gray-100">
+                  <div className="flex items-center gap-3">
+                    <Shield className="w-5 h-5 text-green-500" />
+                    <h3 className="text-lg font-bold text-gray-900">Resolved Reminders</h3>
+                    <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">{stoppedLogs.length}</span>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      <tr>
+                        <th className="px-6 py-4">Request ID</th>
+                        <th className="px-6 py-4">Total Sent</th>
+                        <th className="px-6 py-4">Resolved</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {stoppedLogs.map(log => (
+                        <tr key={log.requestId} className="hover:bg-gray-50/50">
+                          <td className="px-6 py-4 font-mono text-[10px] text-gray-400">{log.requestId.slice(-8)}</td>
+                          <td className="px-6 py-4 text-sm font-bold text-gray-600">{log.totalSent}</td>
+                          <td className="px-6 py-4">
+                            <span className={`text-xs px-2 py-1 rounded-full font-bold ${
+                              log.stoppedReason === 'paid' ? 'bg-green-100 text-green-700' :
+                              log.stoppedReason === 'cancelled' ? 'bg-red-100 text-red-700' :
+                              log.stoppedReason === 'max_reached' ? 'bg-orange-100 text-orange-700' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>
+                              {log.stoppedReason === 'paid' ? 'Paid' :
+                               log.stoppedReason === 'cancelled' ? 'Cancelled' :
+                               log.stoppedReason === 'max_reached' ? 'Max Reached' :
+                               log.stoppedReason === 'past_due' ? 'Past Due' : log.stoppedReason}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            )}
+          </div>
+        );
+      }
       case 'payments':
         const completedRequests = requests.filter(r => r.status === 'completed');
         const grossVolume = completedRequests.reduce((acc, r) => acc + r.totalAmount, 0);
         const totalPayouts = completedRequests.reduce((acc, r) => acc + r.cleanerPayout, 0);
-        
+
         return (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -493,7 +759,9 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
               { id: 'services', label: 'Services and Charges', icon: Briefcase },
               { id: 'homeowners', label: 'Homeowners', icon: Users },
               { id: 'cleaners', label: 'Cleaners', icon: TrendingUp },
-              { id: 'payments', label: 'Payments', icon: DollarSign }
+              { id: 'payments', label: 'Payments', icon: DollarSign },
+              { id: 'finance', label: 'Stripe Finance', icon: Wallet },
+              { id: 'reminders', label: 'Reminders', icon: Bell }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -529,7 +797,9 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
               { id: 'services', label: 'Charges' },
               { id: 'homeowners', label: 'Owners' },
               { id: 'cleaners', label: 'Pros' },
-              { id: 'payments', label: 'Payments' }
+              { id: 'payments', label: 'Payments' },
+              { id: 'finance', label: 'Stripe' },
+              { id: 'reminders', label: 'Reminders' }
           ].map(tab => (
             <button
               key={tab.id}

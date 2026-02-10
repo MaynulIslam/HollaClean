@@ -1,5 +1,4 @@
 
-<<<<<<< HEAD
 import React, { useState } from 'react';
 import { Button, Card } from './UI';
 import {
@@ -8,19 +7,13 @@ import {
   Droplets, Wind, Shirt, Sofa, SprayCan, Trash2, ArrowRight,
   Calendar, MapPin, Wallet, ThumbsUp, MessageSquare, Award,
   Wrench, Package, AlertCircle, ChevronDown, ChevronUp,
-  Calculator, TrendingUp, Target, Heart, Shield, Eye
+  Calculator, TrendingUp, Target, Heart, Shield, Eye, Menu, X
 } from 'lucide-react';
-=======
-import React from 'react';
-import { Button, Card } from './UI';
-import { Sparkles, Home, Briefcase, ShieldCheck } from 'lucide-react';
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
 
 interface LandingProps {
   onAction: (action: 'login' | 'register' | 'admin', role?: string) => void;
 }
 
-<<<<<<< HEAD
 // Service data for SEO-optimized service cards
 const services = [
   {
@@ -194,6 +187,7 @@ const Landing: React.FC<LandingProps> = ({ onAction }) => {
 
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
   const [activeServiceTab, setActiveServiceTab] = useState('regular');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Calculate homeowner estimate
   const calculateHomeownerEstimate = () => {
@@ -267,14 +261,74 @@ const Landing: React.FC<LandingProps> = ({ onAction }) => {
               <button onClick={() => scrollToSection('for-cleaners')} className="text-gray-600 hover:text-purple-600 font-medium transition-colors">For Cleaners</button>
               <button onClick={() => scrollToSection('faq')} className="text-gray-600 hover:text-purple-600 font-medium transition-colors">FAQ</button>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               <button onClick={() => onAction('login')} className="text-purple-600 font-semibold hover:underline hidden sm:block">Login</button>
-              <Button onClick={() => onAction('register', 'homeowner')} className="text-sm px-4 py-2">
+              <Button onClick={() => onAction('register', 'homeowner')} className="text-sm px-3 sm:px-4 py-2">
                 Book Now
               </Button>
+              {/* Mobile Menu Toggle */}
+              <button
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="md:hidden p-2 rounded-lg hover:bg-purple-100 transition-colors"
+                title="Menu"
+              >
+                {mobileMenuOpen ? <X className="w-6 h-6 text-purple-600" /> : <Menu className="w-6 h-6 text-purple-600" />}
+              </button>
             </div>
           </div>
         </div>
+
+        {/* Mobile Menu Dropdown */}
+        {mobileMenuOpen && (
+          <div className="md:hidden bg-white/95 backdrop-blur-xl border-t border-gray-100 animate-in slide-in-from-top duration-200">
+            <div className="px-4 py-4 space-y-1">
+              <button
+                onClick={() => { scrollToSection('services'); setMobileMenuOpen(false); }}
+                className="block w-full text-left px-4 py-3 rounded-xl text-gray-700 hover:bg-purple-50 hover:text-purple-600 font-medium transition-colors"
+              >
+                Services
+              </button>
+              <button
+                onClick={() => { scrollToSection('how-it-works'); setMobileMenuOpen(false); }}
+                className="block w-full text-left px-4 py-3 rounded-xl text-gray-700 hover:bg-purple-50 hover:text-purple-600 font-medium transition-colors"
+              >
+                How It Works
+              </button>
+              <button
+                onClick={() => { scrollToSection('pricing'); setMobileMenuOpen(false); }}
+                className="block w-full text-left px-4 py-3 rounded-xl text-gray-700 hover:bg-purple-50 hover:text-purple-600 font-medium transition-colors"
+              >
+                Pricing
+              </button>
+              <button
+                onClick={() => { scrollToSection('for-cleaners'); setMobileMenuOpen(false); }}
+                className="block w-full text-left px-4 py-3 rounded-xl text-gray-700 hover:bg-purple-50 hover:text-purple-600 font-medium transition-colors"
+              >
+                For Cleaners
+              </button>
+              <button
+                onClick={() => { scrollToSection('faq'); setMobileMenuOpen(false); }}
+                className="block w-full text-left px-4 py-3 rounded-xl text-gray-700 hover:bg-purple-50 hover:text-purple-600 font-medium transition-colors"
+              >
+                FAQ
+              </button>
+              <div className="border-t border-gray-100 pt-3 mt-3 space-y-2">
+                <button
+                  onClick={() => { onAction('login'); setMobileMenuOpen(false); }}
+                  className="block w-full text-center px-4 py-3 rounded-xl border-2 border-purple-600 text-purple-600 font-semibold hover:bg-purple-50 transition-colors"
+                >
+                  Login
+                </button>
+                <button
+                  onClick={() => { onAction('register', 'cleaner'); setMobileMenuOpen(false); }}
+                  className="block w-full text-center px-4 py-3 rounded-xl bg-gradient-to-r from-pink-500 to-orange-500 text-white font-semibold hover:opacity-90 transition-opacity"
+                >
+                  Start Earning as Cleaner
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </nav>
 
       {/* ==================== HERO SECTION ==================== */}
@@ -349,7 +403,7 @@ const Landing: React.FC<LandingProps> = ({ onAction }) => {
           </div>
 
           {/* Service Tabs - Mobile */}
-          <div className="flex overflow-x-auto gap-2 mb-8 pb-2 md:hidden">
+          <div className="flex overflow-x-auto gap-2 mb-8 pb-2 md:hidden scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             {services.map((service) => (
               <button
                 key={service.id}
@@ -1216,63 +1270,10 @@ const Landing: React.FC<LandingProps> = ({ onAction }) => {
       {/* Admin Portal Link (Hidden) */}
       <button
         onClick={() => onAction('admin')}
-        className="fixed bottom-4 right-4 p-2 text-gray-300 hover:text-gray-600 transition-colors opacity-30 hover:opacity-100"
+        className="fixed bottom-20 right-4 md:bottom-4 p-3 text-gray-300 hover:text-gray-600 transition-colors opacity-30 hover:opacity-100 z-50"
+        title="Admin Portal"
       >
-        <ShieldCheck className="w-5 h-5" />
-=======
-const Landing: React.FC<LandingProps> = ({ onAction }) => {
-  return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-6 py-12">
-      <div className="text-center mb-12">
-        <div className="flex items-center justify-center gap-3 mb-4">
-          <Sparkles className="w-10 h-10 text-purple-600 animate-zoom-pulse" />
-          <h1 className="text-5xl font-bold font-outfit animate-shine">
-            HollaClean
-          </h1>
-        </div>
-        <div className="text-xl text-gray-600 max-w-lg mx-auto leading-relaxed font-bold">
-          <p>Clean your place anytime anywhere</p>
-          <p>Canadian No. 1 cleaning service</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-4xl">
-        <Card className="flex flex-col items-center text-center group hover:scale-[1.02] transition-transform">
-          <div className="w-16 h-16 rounded-2xl bg-purple-100 flex items-center justify-center mb-6 group-hover:bg-purple-600 transition-colors">
-            <Home className="w-8 h-8 text-purple-600 group-hover:text-white" />
-          </div>
-          <h2 className="text-2xl font-bold mb-3">Homeowner</h2>
-          <p className="text-gray-500 mb-8">Professional cleaning for your home, at your schedule.</p>
-          <Button onClick={() => onAction('register', 'homeowner')} className="w-full mb-4">
-            Find a Cleaner
-          </Button>
-          <button onClick={() => onAction('login')} className="text-purple-600 font-semibold text-sm hover:underline">
-            Login to your account
-          </button>
-        </Card>
-
-        <Card className="flex flex-col items-center text-center group hover:scale-[1.02] transition-transform">
-          <div className="w-16 h-16 rounded-2xl bg-pink-100 flex items-center justify-center mb-6 group-hover:bg-pink-600 transition-colors">
-            <Briefcase className="w-8 h-8 text-pink-600 group-hover:text-white" />
-          </div>
-          <h2 className="text-2xl font-bold mb-3">Cleaner</h2>
-          <p className="text-gray-500 mb-8">Build your business, set your rates, and be your own boss.</p>
-          <Button onClick={() => onAction('register', 'cleaner')} className="w-full mb-4 bg-gradient-to-r from-pink-600 to-orange-500">
-            Start Earning
-          </Button>
-          <button onClick={() => onAction('login')} className="text-pink-600 font-semibold text-sm hover:underline">
-            Login to your account
-          </button>
-        </Card>
-      </div>
-
-      <button 
-        onClick={() => onAction('admin')}
-        className="mt-12 flex items-center gap-2 text-gray-400 hover:text-gray-600 transition-colors"
-      >
-        <ShieldCheck className="w-4 h-4" />
-        <span className="text-xs uppercase tracking-widest font-bold">Admin Portal</span>
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
+        <ShieldCheck className="w-6 h-6" />
       </button>
     </div>
   );

@@ -18,6 +18,17 @@ export interface User {
   country?: string;
   createdAt: string;
   
+  // Verification
+  emailVerified?: boolean;
+  phoneVerified?: boolean;
+  addressVerified?: boolean;
+
+  // Auth provider
+  authProvider?: 'email' | 'google';
+  firebaseUid?: string;
+  photoURL?: string;
+  profileComplete?: boolean;
+
   // Cleaner specific
   bio?: string;
   hourlyRate?: number;
@@ -29,7 +40,9 @@ export interface User {
   isAvailable?: boolean;
 }
 
-export type RequestStatus = 'open' | 'accepted' | 'in_progress' | 'completed' | 'cancelled';
+export type RequestStatus = 'open' | 'accepted' | 'in_progress' | 'awaiting_payment' | 'completed' | 'cancelled';
+
+export type InvoiceType = 'proforma' | 'payment' | 'final';
 
 export interface CleaningRequest {
   id: string;
@@ -58,8 +71,15 @@ export interface CleaningRequest {
   totalAmount: number;
   platformCommission: number;
   cleanerPayout: number;
-  paymentStatus: 'pending' | 'paid';
-  
+  paymentStatus: 'pending' | 'awaiting' | 'held' | 'paid' | 'demo_completed';
+  paymentIntentId?: string;
+  paidAt?: string;
+  cleanerId?: string;
+
+  // Reminder tracking
+  remindersSent?: number;
+  lastReminderAt?: string;
+
   createdAt: string;
 }
 

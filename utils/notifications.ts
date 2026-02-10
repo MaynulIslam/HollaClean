@@ -162,4 +162,75 @@ export const NotificationHelpers = {
       '/earnings'
     );
   },
+
+  async paymentRequired(homeownerId: string, cleanerName: string, serviceType: string, amount: number) {
+    return createNotification(
+      homeownerId,
+      'warning',
+      'Payment Required to Start',
+      `${cleanerName} is ready to begin your ${serviceType}. Please pay $${amount.toFixed(2)} to start the cleaning.`,
+      '/my-requests'
+    );
+  },
+
+  async paymentHeld(cleanerId: string, serviceType: string) {
+    return createNotification(
+      cleanerId,
+      'success',
+      'Payment Received — Job Started',
+      `The homeowner has paid for ${serviceType}. You can now begin cleaning! Payment will be released when you mark the job complete.`,
+      '/jobs'
+    );
+  },
+
+  async paymentReleased(homeownerId: string, cleanerName: string, serviceType: string, amount: number) {
+    return createNotification(
+      homeownerId,
+      'success',
+      'Payment Released',
+      `$${amount.toFixed(2)} has been released to ${cleanerName} for completing your ${serviceType}.`,
+      '/my-requests'
+    );
+  },
+
+  async verificationReminder(userId: string) {
+    return createNotification(
+      userId,
+      'warning',
+      'Complete Your Verification',
+      'Verify your email, phone number, and address to build trust and unlock all features. Go to Profile → Verification Status.',
+      '/profile'
+    );
+  },
+
+  async paymentReminder(homeownerId: string, cleanerName: string, serviceType: string, amount: number, urgency: 'reminder' | 'urgent' | 'final') {
+    const titles: Record<string, string> = {
+      reminder: 'Payment Reminder',
+      urgent: 'Urgent: Payment Needed Soon',
+      final: 'Final Reminder: Pay Now',
+    };
+    const messages: Record<string, string> = {
+      reminder: `Don't forget to pay $${amount.toFixed(2)} for your ${serviceType} with ${cleanerName}. Payment is needed before cleaning begins.`,
+      urgent: `Your ${serviceType} is starting soon! Please pay $${amount.toFixed(2)} now so ${cleanerName} can begin.`,
+      final: `FINAL REMINDER: ${cleanerName} is arriving soon for ${serviceType}. Pay $${amount.toFixed(2)} immediately to avoid cancellation.`,
+    };
+    return createNotification(
+      homeownerId,
+      'warning',
+      titles[urgency],
+      messages[urgency],
+      '/my-requests'
+    );
+  },
+
+  async bookingConfirmation(homeownerId: string, cleanerName: string, serviceType: string, date: string, time: string) {
+    const formattedDate = new Date(date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
+    return createNotification(
+      homeownerId,
+      'success',
+      'Booking Confirmed!',
+      `${cleanerName} has accepted your ${serviceType} request for ${formattedDate} at ${time}. A booking quote is available in your requests.`,
+      '/my-requests'
+    );
+  },
 };

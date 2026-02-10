@@ -1,0 +1,25 @@
+For payment:
+1. Payment Flow (Expected Behavior)
+Current behavior is correct for a demo/MVP:
+
+The app is in "demo mode" with CONFIG.features.payments: false
+When payments are disabled, jobs can be completed without real payment processing
+I've added:
+A notice showing "Payment processing coming soon" when completing a job
+Changed the payment status to demo_completed to indicate it's not a real payment
+Added a confirmation dialog before marking jobs complete
+In production, when CONFIG.features.payments: true:
+
+The app would integrate with Stripe
+Payment would be required before job completion
+Cleaner payouts would happen after payment confirmation
+2. Message Button Fix
+Both MyJobs.tsx (cleaner side) and MyRequests.tsx (homeowner side) now:
+
+Show a "Coming Soon" modal when clicking the message button
+The modal explains in-app messaging is being developed
+Phone call buttons still work (they link to tel: which opens the phone dialer)
+Files Updated:
+components/MyJobs.tsx - Added ComingSoon modal, payment notice, fixed message button
+components/MyRequests.tsx - Added ComingSoon modal, fixed message button
+The build succeeded and the app is ready for deployment. Users will now see a helpful "Coming Soon" message when clicking message buttons, and there's a visual indicator that payment processing is a future feature.

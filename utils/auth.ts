@@ -47,13 +47,13 @@ export function generateSessionToken(): string {
 }
 
 // Create a session with expiry
-export function createSession(userId: string, userType: string): Session {
+export function createSession(userId: string, userType?: string): Session {
   const now = new Date();
   const expiry = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours
 
   return {
     userId,
-    userType,
+    userType: userType || 'user',
     createdAt: now.toISOString(),
     expiresAt: expiry.toISOString(),
     token: generateSessionToken()

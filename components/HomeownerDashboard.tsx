@@ -6,28 +6,29 @@ import { Button, Card, Badge } from './UI';
 import CreateRequest from './CreateRequest';
 import MyRequests from './MyRequests';
 import ProfileView from './ProfileView';
-<<<<<<< HEAD
+import NotificationCenter from './NotificationCenter';
+import { CONFIG } from '../utils/config';
+import { Notification } from '../utils/notifications';
 import {
   Plus, Calendar, LogOut, User as UserIcon, LayoutDashboard, Sparkles,
-  Clock, DollarSign, CheckCircle, Star, ArrowRight, Home, Bell,
-  MapPin, Phone, Shield, TrendingUp, AlertCircle, RefreshCw
+  Clock, DollarSign, CheckCircle, Star, ArrowRight, Home,
+  MapPin, Phone, Shield, TrendingUp, AlertCircle, RefreshCw, CreditCard, Bell, X
 } from 'lucide-react';
-=======
-import { Plus, Calendar, LogOut, User as UserIcon, LayoutDashboard, Sparkles } from 'lucide-react';
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
 
 interface Props {
   user: User;
   onLogout: () => void;
+  onUserUpdate?: (user: User) => void;
 }
 
-const HomeownerDashboard: React.FC<Props> = ({ user, onLogout }) => {
+const HomeownerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) => {
   const [view, setView] = useState<'overview' | 'create' | 'my_requests' | 'profile'>('overview');
-<<<<<<< HEAD
   const [stats, setStats] = useState({ total: 0, active: 0, completed: 0, totalSpent: 0 });
   const [recentRequests, setRecentRequests] = useState<CleaningRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeRequest, setActiveRequest] = useState<CleaningRequest | null>(null);
+  const [showPaymentToast, setShowPaymentToast] = useState(false);
+  const [prevActiveStatus, setPrevActiveStatus] = useState<string | null>(null);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -35,24 +36,17 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout }) => {
     let total = 0, active = 0, completed = 0, totalSpent = 0;
     const items: CleaningRequest[] = [];
     let currentActive: CleaningRequest | null = null;
-=======
-  const [stats, setStats] = useState({ total: 0, active: 0, completed: 0 });
-  const [recentRequests, setRecentRequests] = useState<CleaningRequest[]>([]);
-
-  const loadData = async () => {
-    const keys = await storage.list('request:');
-    let total = 0, active = 0, completed = 0;
-    const items: CleaningRequest[] = [];
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
 
     for (const key of keys) {
       const req = await storage.get(key);
       if (req && req.homeownerId === user.id) {
         total++;
-<<<<<<< HEAD
-        if (['open', 'accepted', 'in_progress'].includes(req.status)) {
+        if (['open', 'accepted', 'in_progress', 'awaiting_payment'].includes(req.status)) {
           active++;
-          if (!currentActive || new Date(req.createdAt) > new Date(currentActive.createdAt)) {
+          // Prioritize awaiting_payment as the active request
+          if (req.status === 'awaiting_payment') {
+            currentActive = req;
+          } else if (!currentActive || (currentActive.status !== 'awaiting_payment' && new Date(req.createdAt) > new Date(currentActive.createdAt))) {
             currentActive = req;
           }
         }
@@ -67,30 +61,39 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout }) => {
     setActiveRequest(currentActive);
     setRecentRequests(items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5));
     setIsLoading(false);
-=======
-        if (['open', 'accepted', 'in_progress'].includes(req.status)) active++;
-        if (req.status === 'completed') completed++;
-        items.push(req);
-      }
-    }
-    setStats({ total, active, completed });
-    setRecentRequests(items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 3));
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
   };
 
   useEffect(() => {
     loadData();
-<<<<<<< HEAD
     // Set up polling for real-time updates
-    const interval = setInterval(loadData, 15000);
+    const interval = setInterval(loadData, CONFIG.polling.dashboardStats);
     return () => clearInterval(interval);
   }, [view]);
+
+  // Show payment toast when a request transitions to awaiting_payment
+  useEffect(() => {
+    if (activeRequest?.status === 'awaiting_payment' && prevActiveStatus !== 'awaiting_payment') {
+      setShowPaymentToast(true);
+      // Auto-dismiss after 15 seconds
+      const timer = setTimeout(() => setShowPaymentToast(false), 15000);
+      return () => clearTimeout(timer);
+    }
+    setPrevActiveStatus(activeRequest?.status || null);
+  }, [activeRequest?.status]);
+
+  const handleNotificationClick = (notification: Notification) => {
+    // Navigate to My Requests when clicking payment or job-related notifications
+    if (notification.link === '/my-requests') {
+      setView('my_requests');
+    }
+  };
 
   const getStatusColor = (status: string) => {
     const colors: Record<string, { bg: string; text: string; icon: string }> = {
       open: { bg: 'bg-green-100', text: 'text-green-700', icon: 'text-green-500' },
       accepted: { bg: 'bg-blue-100', text: 'text-blue-700', icon: 'text-blue-500' },
       in_progress: { bg: 'bg-purple-100', text: 'text-purple-700', icon: 'text-purple-500' },
+      awaiting_payment: { bg: 'bg-orange-100', text: 'text-orange-700', icon: 'text-orange-500' },
       completed: { bg: 'bg-gray-100', text: 'text-gray-700', icon: 'text-gray-500' },
       cancelled: { bg: 'bg-red-100', text: 'text-red-700', icon: 'text-red-500' }
     };
@@ -115,15 +118,19 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout }) => {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Home Button - Only show when not on overview */}
+            {view !== 'overview' && (
+              <button
+                onClick={() => setView('overview')}
+                className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center text-purple-600 hover:bg-purple-200 transition-colors"
+                title="Go to Dashboard"
+              >
+                <Home className="w-5 h-5" />
+              </button>
+            )}
+
             {/* Notifications */}
-            <button className="relative w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors">
-              <Bell className="w-5 h-5 text-gray-600" />
-              {stats.active > 0 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-purple-600 text-white text-xs font-bold rounded-full flex items-center justify-center">
-                  {stats.active}
-                </span>
-              )}
-            </button>
+            <NotificationCenter userId={user.id} onNotificationClick={handleNotificationClick} />
 
             {/* User Menu */}
             <div className="hidden sm:flex items-center gap-3 pl-3 border-l border-gray-200">
@@ -138,6 +145,7 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout }) => {
                     ? 'bg-purple-600 text-white shadow-lg shadow-purple-200'
                     : 'bg-purple-100 text-purple-600 hover:bg-purple-200'
                 }`}
+                title="View Profile"
               >
                 <UserIcon className="w-5 h-5" />
               </button>
@@ -146,12 +154,48 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout }) => {
             <button
               onClick={onLogout}
               className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400 hover:bg-red-100 hover:text-red-500 transition-colors"
+              title="Sign Out"
             >
               <LogOut className="w-5 h-5" />
             </button>
           </div>
         </div>
       </header>
+
+      {/* Payment Required Toast Banner */}
+      {showPaymentToast && activeRequest?.status === 'awaiting_payment' && (
+        <div className="sticky top-[57px] z-20 animate-in slide-in-from-top duration-300">
+          <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-orange-500 text-white px-4 py-3 shadow-lg">
+            <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0 animate-pulse">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-bold text-sm">Payment Required — Your cleaner is ready!</p>
+                  <p className="text-white/80 text-xs truncate">
+                    {activeRequest.cleanerName} wants to start your {activeRequest.serviceType}. Pay ${activeRequest.totalAmount.toFixed(2)} to begin.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => { setShowPaymentToast(false); setView('my_requests'); }}
+                  className="px-4 py-2 bg-white text-orange-600 font-bold text-sm rounded-lg hover:bg-orange-50 transition-colors"
+                >
+                  Pay Now
+                </button>
+                <button
+                  onClick={() => setShowPaymentToast(false)}
+                  className="p-1 text-white/70 hover:text-white transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <main className="flex-1 p-4 md:p-8 max-w-6xl mx-auto w-full">
@@ -171,13 +215,46 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout }) => {
               </Button>
             </div>
 
+            {/* Verification Reminder Banner */}
+            {(!user.emailVerified || !user.phoneVerified || !user.addressVerified) && (
+              <Card className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200">
+                <div className="flex items-start gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                    <Shield className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-bold text-gray-900 text-sm">Complete Your Verification</h3>
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      Verify your {[!user.emailVerified && 'email', !user.phoneVerified && 'phone', !user.addressVerified && 'address'].filter(Boolean).join(', ')} to build trust and unlock all features.
+                    </p>
+                    <div className="flex items-center gap-2 mt-2">
+                      <div className="flex items-center gap-1">
+                        {[user.emailVerified, user.phoneVerified, user.addressVerified].map((v, i) => (
+                          <div key={i} className={`w-2 h-2 rounded-full ${v ? 'bg-green-500' : 'bg-gray-300'}`} />
+                        ))}
+                      </div>
+                      <span className="text-xs text-gray-500">{[user.emailVerified, user.phoneVerified, user.addressVerified].filter(Boolean).length}/3 verified</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setView('profile')}
+                    className="px-4 py-2 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-600 transition-colors flex-shrink-0"
+                  >
+                    Verify Now
+                  </button>
+                </div>
+              </Card>
+            )}
+
             {/* Active Request Alert */}
             {activeRequest && (
-              <Card className="bg-gradient-to-r from-purple-600 to-pink-600 text-white p-5 border-0">
+              <Card className={`${activeRequest.status === 'awaiting_payment' ? 'bg-gradient-to-r from-orange-500 to-amber-500' : activeRequest.status === 'in_progress' && activeRequest.paymentStatus === 'held' ? 'bg-gradient-to-r from-emerald-600 to-teal-600' : 'bg-gradient-to-r from-purple-600 to-pink-600'} text-white p-5 border-0`}>
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-4">
                     <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
-                      {activeRequest.status === 'in_progress' ? (
+                      {activeRequest.status === 'awaiting_payment' ? (
+                        <DollarSign className="w-6 h-6" />
+                      ) : activeRequest.status === 'in_progress' ? (
                         <RefreshCw className="w-6 h-6 animate-spin" />
                       ) : activeRequest.status === 'accepted' ? (
                         <CheckCircle className="w-6 h-6" />
@@ -187,7 +264,9 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout }) => {
                     </div>
                     <div>
                       <p className="text-white/70 text-sm font-medium uppercase tracking-wider">
-                        {activeRequest.status === 'in_progress'
+                        {activeRequest.status === 'awaiting_payment'
+                          ? 'Payment Required'
+                          : activeRequest.status === 'in_progress'
                           ? 'Cleaning In Progress'
                           : activeRequest.status === 'accepted'
                           ? 'Cleaner Confirmed'
@@ -210,13 +289,23 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout }) => {
                           </span>
                         )}
                       </div>
+                      {activeRequest.status === 'awaiting_payment' && (
+                        <p className="text-white/90 text-sm mt-2 font-semibold">
+                          Cleaner is ready! Pay ${activeRequest.totalAmount.toFixed(2)} to start cleaning.
+                        </p>
+                      )}
+                      {activeRequest.status === 'in_progress' && activeRequest.paymentStatus === 'held' && (
+                        <p className="text-white/90 text-sm mt-2 font-semibold">
+                          ${activeRequest.totalAmount.toFixed(2)} held securely — released on completion.
+                        </p>
+                      )}
                     </div>
                   </div>
                   <button
                     onClick={() => setView('my_requests')}
                     className="flex items-center gap-1 text-white/80 hover:text-white transition-colors text-sm font-semibold"
                   >
-                    View Details
+                    {activeRequest.status === 'awaiting_payment' ? 'Pay Now' : 'View Details'}
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -311,81 +400,10 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout }) => {
                 <div className="flex items-center gap-2 mt-4 text-purple-600 text-sm font-semibold">
                   View All <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </div>
-=======
-  }, [view]);
-
-  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col pb-24 md:pb-0">
-      {/* Top Nav */}
-      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-gray-100 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-6 h-6 text-purple-600" />
-          <h1 className="text-xl font-bold font-outfit">HollaClean</h1>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="text-right hidden sm:block">
-            <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">Homeowner</p>
-            <p className="text-sm font-bold text-gray-800">Hey, {user.name.split(' ')[0]}! 👋</p>
-          </div>
-          <button 
-            onClick={() => setView('profile')}
-            className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${view === 'profile' ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-600 hover:bg-purple-200'}`}
-          >
-            <UserIcon className="w-5 h-5" />
-          </button>
-          <button onClick={onLogout} className="text-gray-400 hover:text-red-500 transition-colors">
-            <LogOut className="w-5 h-5" />
-          </button>
-        </div>
-      </header>
-
-      {/* Content */}
-      <main className="flex-1 p-6 md:p-8 max-w-5xl mx-auto w-full">
-        {view === 'overview' && (
-          <div className="space-y-8 animate-in fade-in duration-500">
-            {/* Quick Stats */}
-            <div className="grid grid-cols-3 gap-4">
-              {[
-                { label: 'Requests', val: stats.total, color: 'bg-purple-600 text-white shadow-lg shadow-purple-100' },
-                { label: 'Active', val: stats.active, color: 'bg-emerald-500 text-white shadow-lg shadow-emerald-100' },
-                { label: 'Completed', val: stats.completed, color: 'bg-slate-600 text-white shadow-lg shadow-slate-100' }
-              ].map((s, i) => (
-                <div key={i} className={`p-4 rounded-2xl ${s.color} text-center transition-all hover:scale-105`}>
-                  <p className="text-2xl font-black">{s.val}</p>
-                  <p className="text-[10px] uppercase font-black tracking-widest opacity-80">{s.label}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Main Actions */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <button 
-                onClick={() => setView('create')}
-                className="group relative overflow-hidden bg-gradient-to-br from-purple-600 to-pink-500 p-8 rounded-3xl text-white shadow-xl shadow-purple-200 text-left active:scale-[0.98] transition-transform"
-              >
-                <div className="relative z-10">
-                  <Plus className="w-10 h-10 mb-4 bg-white/20 p-2 rounded-xl" />
-                  <h3 className="text-2xl font-bold mb-1">Request Cleaning</h3>
-                  <p className="text-white/80 text-sm">Post a new job and get matched with top local cleaners.</p>
-                </div>
-                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-125 transition-transform">
-                  <Sparkles className="w-32 h-32" />
-                </div>
-              </button>
-
-              <button 
-                onClick={() => setView('my_requests')}
-                className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm text-left hover:shadow-md transition-shadow active:scale-[0.98]"
-              >
-                <Calendar className="w-10 h-10 mb-4 text-purple-600 bg-purple-50 p-2 rounded-xl" />
-                <h3 className="text-2xl font-bold mb-1">My Requests</h3>
-                <p className="text-gray-500 text-sm">View and manage your active and past cleaning jobs.</p>
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
               </button>
             </div>
 
             {/* Recent Activity */}
-<<<<<<< HEAD
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-bold font-outfit text-gray-900">Recent Activity</h2>
@@ -499,70 +517,29 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout }) => {
                 </div>
               </div>
             </Card>
-=======
-            <div className="space-y-4">
-              <h3 className="text-lg font-bold">Recent Activity</h3>
-              {recentRequests.length > 0 ? (
-                <div className="space-y-3">
-                  {recentRequests.map(req => (
-                    <Card key={req.id} className="p-4 flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center">
-                          <Sparkles className="w-5 h-5 text-gray-400" />
-                        </div>
-                        <div>
-                          <p className="font-bold text-sm">{req.serviceType}</p>
-                          <p className="text-xs text-gray-500">{new Date(req.date).toLocaleDateString()}</p>
-                        </div>
-                      </div>
-                      <Badge status={req.status} />
-                    </Card>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12 bg-white rounded-3xl border border-dashed border-gray-200">
-                  <p className="text-gray-400">No recent requests.</p>
-                </div>
-              )}
-            </div>
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
           </div>
         )}
 
         {view === 'create' && (
-<<<<<<< HEAD
           <CreateRequest
             user={user}
             onSuccess={() => { loadData(); setView('my_requests'); }}
             onBack={() => setView('overview')}
-=======
-          <CreateRequest 
-            user={user} 
-            onSuccess={() => setView('my_requests')} 
-            onBack={() => setView('overview')} 
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
           />
         )}
 
         {view === 'my_requests' && (
-<<<<<<< HEAD
           <MyRequests
             homeownerId={user.id}
             onBack={() => setView('overview')}
-=======
-          <MyRequests 
-            homeownerId={user.id} 
-            onBack={() => setView('overview')} 
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
           />
         )}
 
         {view === 'profile' && (
-          <ProfileView user={user} onBack={() => setView('overview')} onLogout={onLogout} />
+          <ProfileView user={user} onBack={() => setView('overview')} onLogout={onLogout} onUserUpdate={onUserUpdate} />
         )}
       </main>
 
-<<<<<<< HEAD
       {/* Bottom Navigation - Mobile */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-gray-100 px-6 py-3 flex items-center justify-around z-40 safe-area-bottom">
         <button
@@ -584,21 +561,6 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout }) => {
         >
           <Calendar className="w-6 h-6" />
           <span className="text-[10px] font-bold uppercase tracking-wide">Requests</span>
-=======
-      {/* Bottom Nav Mobile */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-6 py-4 flex items-center justify-around z-40 safe-area-bottom">
-        <button onClick={() => setView('overview')} className={`flex flex-col items-center gap-1 ${view === 'overview' ? 'text-purple-600' : 'text-gray-400'}`}>
-          <LayoutDashboard className="w-6 h-6" />
-          <span className="text-[10px] font-bold uppercase">Home</span>
-        </button>
-        <button onClick={() => setView('my_requests')} className={`flex flex-col items-center gap-1 ${view === 'my_requests' ? 'text-purple-600' : 'text-gray-400'}`}>
-          <Calendar className="w-6 h-6" />
-          <span className="text-[10px] font-bold uppercase">Requests</span>
-        </button>
-        <button onClick={() => setView('profile')} className={`flex flex-col items-center gap-1 ${view === 'profile' ? 'text-purple-600' : 'text-gray-400'}`}>
-          <UserIcon className="w-6 h-6" />
-          <span className="text-[10px] font-bold uppercase">Profile</span>
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
         </button>
       </nav>
     </div>

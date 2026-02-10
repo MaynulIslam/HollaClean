@@ -1,18 +1,24 @@
 
 import React, { useState, useEffect } from 'react';
-import { CleaningRequest } from '../types';
+import { CleaningRequest, InvoiceType } from '../types';
 import { storage } from '../utils/storage';
 import { Card, Badge, Button } from './UI';
-<<<<<<< HEAD
 import {
   ArrowLeft, Clock, MapPin, MessageSquare, Phone, Calendar,
   DollarSign, User, Star, CheckCircle, XCircle, AlertCircle,
-  ChevronDown, ChevronUp, Sparkles, RefreshCw, Filter, Search
+  ChevronDown, ChevronUp, Sparkles, RefreshCw, Filter, Search, FileText,
+  CreditCard, Wallet
 } from 'lucide-react';
-=======
-import { ArrowLeft, Clock, MapPin, MessageSquare, Phone } from 'lucide-react';
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
 import ReviewModal from './ReviewModal';
+import ComingSoon, { useComingSoon } from './ComingSoon';
+import Invoice from './Invoice';
+import PaymentCheckout from './PaymentCheckout';
+import VerificationBadge from './VerificationBadge';
+import { CONFIG } from '../utils/config';
+import { NotificationHelpers } from '../utils/notifications';
+import { ExternalNotify } from '../utils/externalNotifications';
+import { stopRemindersForRequest } from '../utils/reminderService';
+import { notifyAdmin } from '../utils/adminNotifications';
 
 interface Props {
   homeownerId: string;
@@ -22,47 +28,54 @@ interface Props {
 const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
   const [requests, setRequests] = useState<CleaningRequest[]>([]);
   const [selectedReq, setSelectedReq] = useState<CleaningRequest | null>(null);
-<<<<<<< HEAD
+  const [invoiceState, setInvoiceState] = useState<{ req: CleaningRequest; type: InvoiceType } | null>(null);
+  const [paymentReq, setPaymentReq] = useState<CleaningRequest | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'active' | 'completed' | 'cancelled'>('all');
   const [isLoading, setIsLoading] = useState(true);
+  const [cleanerVerifications, setCleanerVerifications] = useState<Record<string, { email: boolean; phone: boolean; address: boolean }>>({});
+  const { isOpen: isComingSoonOpen, feature: comingSoonFeature, showComingSoon, hideComingSoon } = useComingSoon();
+
+  const handleMessageClick = () => {
+    if (!CONFIG.features.messaging) {
+      showComingSoon('messaging');
+    }
+  };
 
   const loadRequests = async () => {
     setIsLoading(true);
-=======
-
-  const loadRequests = async () => {
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
     const keys = await storage.list('request:');
     const myItems: CleaningRequest[] = [];
+    const verMap: Record<string, { email: boolean; phone: boolean; address: boolean }> = {};
     for (const key of keys) {
       const req = await storage.get(key);
       if (req && req.homeownerId === homeownerId) {
         myItems.push(req);
+        if (req.acceptedBy && !verMap[req.acceptedBy]) {
+          const cleaner = await storage.get(`user:${req.acceptedBy}`);
+          if (cleaner) {
+            verMap[req.acceptedBy] = {
+              email: !!cleaner.emailVerified,
+              phone: !!cleaner.phoneVerified,
+              address: !!cleaner.addressVerified,
+            };
+          }
+        }
       }
     }
     setRequests(myItems.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-<<<<<<< HEAD
+    setCleanerVerifications(verMap);
     setIsLoading(false);
-=======
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
   };
 
   useEffect(() => {
     loadRequests();
-<<<<<<< HEAD
     const interval = setInterval(loadRequests, 15000);
     return () => clearInterval(interval);
   }, []);
 
   const handleCancel = async (id: string) => {
     if (window.confirm("Are you sure you want to cancel this request? This action cannot be undone.")) {
-=======
-  }, []);
-
-  const handleCancel = async (id: string) => {
-    if (window.confirm("Are you sure you want to cancel this request?")) {
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
       const req = await storage.get(`request:${id}`);
       if (req) {
         req.status = 'cancelled';
@@ -72,10 +85,49 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
     }
   };
 
-<<<<<<< HEAD
+  const handlePaymentSuccess = async (paymentIntentId: string) => {
+    if (!paymentReq) return;
+
+    const req = await storage.get(`request:${paymentReq.id}`);
+    if (req) {
+      // Payment collected → money is HELD → cleaning can begin
+      req.status = 'in_progress';
+      req.paymentStatus = 'held';
+      req.paymentIntentId = paymentIntentId;
+      req.paidAt = new Date().toISOString();
+      await storage.set(`request:${paymentReq.id}`, req);
+
+      // Stop payment reminders
+      await stopRemindersForRequest(paymentReq.id, 'paid');
+
+      // Notify admin about payment
+      notifyAdmin('payment_completed', {
+        serviceType: req.serviceType,
+        amount: req.totalAmount,
+        homeownerName: req.homeownerName,
+        cleanerName: req.cleanerName || undefined,
+        requestId: req.id,
+      });
+
+      // Notify cleaner that payment is held and they can start cleaning (in-app)
+      if (req.acceptedBy) {
+        await NotificationHelpers.paymentHeld(req.acceptedBy, req.serviceType);
+
+        // Send email + push to cleaner
+        const cleaner = await storage.get(`user:${req.acceptedBy}`);
+        if (cleaner) {
+          ExternalNotify.paymentHeld(cleaner.email, cleaner.name || 'Cleaner', req.serviceType);
+        }
+      }
+    }
+
+    setPaymentReq(null);
+    loadRequests();
+  };
+
   const filteredRequests = requests.filter(req => {
     if (filter === 'all') return true;
-    if (filter === 'active') return ['open', 'accepted', 'in_progress'].includes(req.status);
+    if (filter === 'active') return ['open', 'accepted', 'in_progress', 'awaiting_payment'].includes(req.status);
     if (filter === 'completed') return req.status === 'completed';
     if (filter === 'cancelled') return req.status === 'cancelled';
     return true;
@@ -86,7 +138,8 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
       open: { color: 'text-green-700', bg: 'bg-green-50 border-green-200', icon: <AlertCircle className="w-5 h-5" />, label: 'Awaiting Cleaner' },
       accepted: { color: 'text-blue-700', bg: 'bg-blue-50 border-blue-200', icon: <CheckCircle className="w-5 h-5" />, label: 'Cleaner Confirmed' },
       in_progress: { color: 'text-purple-700', bg: 'bg-purple-50 border-purple-200', icon: <RefreshCw className="w-5 h-5 animate-spin" />, label: 'Cleaning In Progress' },
-      completed: { color: 'text-gray-700', bg: 'bg-gray-50 border-gray-200', icon: <CheckCircle className="w-5 h-5" />, label: 'Completed' },
+      awaiting_payment: { color: 'text-orange-700', bg: 'bg-orange-50 border-orange-200', icon: <CreditCard className="w-5 h-5" />, label: 'Payment Required' },
+      completed: { color: 'text-gray-700', bg: 'bg-gray-50 border-gray-200', icon: <CheckCircle className="w-5 h-5" />, label: 'Completed & Paid' },
       cancelled: { color: 'text-red-700', bg: 'bg-red-50 border-red-200', icon: <XCircle className="w-5 h-5" />, label: 'Cancelled' }
     };
     return statusMap[status] || statusMap.open;
@@ -94,7 +147,7 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
 
   const stats = {
     total: requests.length,
-    active: requests.filter(r => ['open', 'accepted', 'in_progress'].includes(r.status)).length,
+    active: requests.filter(r => ['open', 'accepted', 'in_progress', 'awaiting_payment'].includes(r.status)).length,
     completed: requests.filter(r => r.status === 'completed').length,
     cancelled: requests.filter(r => r.status === 'cancelled').length
   };
@@ -120,24 +173,24 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
       </div>
 
       {/* Stats & Filters */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-6">
         {[
           { key: 'all', label: 'All', count: stats.total, color: 'purple' },
           { key: 'active', label: 'Active', count: stats.active, color: 'green' },
-          { key: 'completed', label: 'Completed', count: stats.completed, color: 'blue' },
+          { key: 'completed', label: 'Done', count: stats.completed, color: 'blue' },
           { key: 'cancelled', label: 'Cancelled', count: stats.cancelled, color: 'red' }
         ].map(item => (
           <button
             key={item.key}
             onClick={() => setFilter(item.key as any)}
-            className={`p-3 rounded-xl text-center transition-all ${
+            className={`p-2 sm:p-3 rounded-xl text-center transition-all active:scale-[0.98] ${
               filter === item.key
                 ? `bg-${item.color}-100 border-2 border-${item.color}-500 text-${item.color}-700`
                 : 'bg-white border border-gray-100 text-gray-600 hover:border-gray-200'
             }`}
           >
-            <p className="text-xl font-bold">{item.count}</p>
-            <p className="text-xs font-semibold uppercase tracking-wider">{item.label}</p>
+            <p className="text-lg sm:text-xl font-bold">{item.count}</p>
+            <p className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider">{item.label}</p>
           </button>
         ))}
       </div>
@@ -242,14 +295,45 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                   )}
 
                   {req.status === 'in_progress' && (
-                    <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-xl flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
-                        <RefreshCw className="w-4 h-4 text-purple-600 animate-spin" />
+                    <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-xl">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
+                          <RefreshCw className="w-4 h-4 text-purple-600 animate-spin" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-purple-800">Cleaning in progress</p>
+                          <p className="text-xs text-purple-600">{req.cleanerName} is currently cleaning your space</p>
+                        </div>
                       </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold text-purple-800">Cleaning in progress</p>
-                        <p className="text-xs text-purple-600">{req.cleanerName} is currently cleaning your space</p>
+                      {req.paymentStatus === 'held' && (
+                        <div className="mt-2 flex items-center gap-2 text-xs text-green-700 bg-green-50 px-3 py-2 rounded-lg border border-green-200">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span><strong>${req.totalAmount.toFixed(2)}</strong> payment held — will be released when job is completed</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {req.status === 'awaiting_payment' && (
+                    <div className="mt-4 p-4 bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 rounded-xl">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center flex-shrink-0">
+                          <CreditCard className="w-5 h-5 text-orange-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold text-orange-800">Payment Required to Start Cleaning</p>
+                          <p className="text-sm text-orange-600 mt-0.5">
+                            {req.cleanerName} is ready to begin. Pay now to authorize the cleaning — your money is held securely and only released after the job is done.
+                          </p>
+                        </div>
                       </div>
+                      <button
+                        onClick={() => setPaymentReq(req)}
+                        className="mt-3 w-full py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                      >
+                        <Wallet className="w-5 h-5" />
+                        Pay ${req.totalAmount.toFixed(2)} CAD — Hold & Start
+                      </button>
                     </div>
                   )}
                 </div>
@@ -267,7 +351,16 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                               <User className="w-6 h-6 text-purple-600" />
                             </div>
                             <div>
-                              <p className="font-bold text-gray-900">{req.cleanerName}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="font-bold text-gray-900">{req.cleanerName}</p>
+                                {req.acceptedBy && cleanerVerifications[req.acceptedBy] && (
+                                  <div className="flex items-center gap-0.5">
+                                    <VerificationBadge verified={cleanerVerifications[req.acceptedBy].email} label="Email" />
+                                    <VerificationBadge verified={cleanerVerifications[req.acceptedBy].phone} label="Phone" />
+                                    <VerificationBadge verified={cleanerVerifications[req.acceptedBy].address} label="Address" />
+                                  </div>
+                                )}
+                              </div>
                               <div className="flex items-center gap-2 text-sm text-gray-500">
                                 <span>${req.hourlyRate}/hr</span>
                                 <span>•</span>
@@ -279,13 +372,18 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                             </div>
                           </div>
                           <div className="flex gap-2">
-                            <button className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-600 hover:bg-blue-100 transition-colors">
+                            <button
+                              onClick={handleMessageClick}
+                              className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-600 hover:bg-blue-100 transition-colors"
+                              title="Send message to cleaner (Coming Soon)"
+                            >
                               <MessageSquare className="w-5 h-5" />
                             </button>
                             {req.cleanerPhone && (
                               <a
                                 href={`tel:${req.cleanerPhone}`}
                                 className="p-3 bg-green-50 border border-green-200 rounded-xl text-green-600 hover:bg-green-100 transition-colors"
+                                title={`Call ${req.cleanerName}`}
                               >
                                 <Phone className="w-5 h-5" />
                               </a>
@@ -346,11 +444,61 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                           {req.status === 'open' ? 'Cancel Request' : 'Cancel Booking'}
                         </Button>
                       )}
-                      {req.status === 'completed' && (
-                        <Button onClick={() => setSelectedReq(req)} className="text-sm">
-                          <Star className="w-4 h-4" />
-                          Leave a Review
+                      {req.status === 'accepted' && req.acceptedBy && (
+                        <Button
+                          variant="secondary"
+                          onClick={() => setInvoiceState({ req, type: 'proforma' })}
+                          className="text-sm"
+                        >
+                          <FileText className="w-4 h-4" />
+                          View Booking Quote
                         </Button>
+                      )}
+                      {req.status === 'awaiting_payment' && (
+                        <>
+                          <Button
+                            onClick={() => setPaymentReq(req)}
+                            className="text-sm bg-gradient-to-r from-purple-600 to-pink-600"
+                          >
+                            <Wallet className="w-4 h-4" />
+                            Pay & Start Cleaning
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            onClick={() => setInvoiceState({ req, type: 'proforma' })}
+                            className="text-sm"
+                          >
+                            <FileText className="w-4 h-4" />
+                            View Quote
+                          </Button>
+                        </>
+                      )}
+                      {req.status === 'in_progress' && req.paymentStatus === 'held' && (
+                        <Button
+                          variant="secondary"
+                          onClick={() => setInvoiceState({ req, type: 'payment' })}
+                          className="text-sm"
+                        >
+                          <FileText className="w-4 h-4" />
+                          Payment Receipt
+                        </Button>
+                      )}
+                      {req.status === 'completed' && (
+                        <>
+                          <Button onClick={() => setSelectedReq(req)} className="text-sm">
+                            <Star className="w-4 h-4" />
+                            Leave a Review
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            onClick={() => setInvoiceState({ req, type: 'final' })}
+                            className="text-sm"
+                            title="View Invoice"
+                          >
+                            <FileText className="w-4 h-4" />
+                            View Invoice
+                          </Button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -369,100 +517,33 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
             setSelectedReq(null);
             loadRequests();
           }}
-=======
-  return (
-    <div className="animate-in slide-in-from-right-4 duration-300">
-      <button onClick={onBack} className="mb-6 flex items-center gap-2 text-gray-500 hover:text-purple-600 transition-colors">
-        <ArrowLeft className="w-4 h-4" />
-        <span className="text-sm font-semibold">Back to Overview</span>
-      </button>
+        />
+      )}
 
-      <h2 className="text-4xl font-bold mb-8 font-outfit">My Cleaning Requests</h2>
+      {/* Coming Soon Modal */}
+      <ComingSoon
+        feature={comingSoonFeature}
+        isOpen={isComingSoonOpen}
+        onClose={hideComingSoon}
+      />
 
-      <div className="grid grid-cols-1 gap-6">
-        {requests.length === 0 ? (
-          <Card className="py-20 text-center">
-            <p className="text-gray-400 mb-6">You haven't made any requests yet.</p>
-            <Button onClick={onBack}>Create Your First Request</Button>
-          </Card>
-        ) : (
-          requests.map(req => (
-            <Card key={req.id} className="relative overflow-hidden p-0">
-              {/* Header row with status and main actions */}
-              <div className="p-6">
-                <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-4">
-                  <div className="flex items-center gap-3">
-                    <Badge status={req.status} />
-                    <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">POSTED {new Date(req.createdAt).toLocaleDateString()}</span>
-                  </div>
-                  
-                  <div className="flex flex-col gap-2 min-w-[180px]">
-                    {(req.status === 'open' || req.status === 'accepted') && (
-                      <Button 
-                        variant="danger" 
-                        onClick={() => handleCancel(req.id)} 
-                        className="w-full text-xs py-2 bg-gradient-to-r from-red-500 to-red-600 shadow-md border-none rounded-lg"
-                      >
-                        {req.status === 'open' ? 'Cancel Request' : 'Cancel Booking'}
-                      </Button>
-                    )}
-                    <Button variant="secondary" className="w-full text-xs py-2 border-purple-100 text-purple-600 rounded-lg">
-                      View Full Details
-                    </Button>
-                    {req.status === 'completed' && (
-                      <Button variant="primary" onClick={() => setSelectedReq(req)} className="w-full text-xs py-2">Leave Review</Button>
-                    )}
-                  </div>
-                </div>
+      {/* Invoice Modal */}
+      {invoiceState && (
+        <Invoice
+          request={invoiceState.req}
+          isOpen={true}
+          onClose={() => setInvoiceState(null)}
+          invoiceType={invoiceState.type}
+        />
+      )}
 
-                {/* Job Content */}
-                <div className="mb-6">
-                  <h3 className="text-2xl font-bold font-outfit mb-2">{req.serviceType}</h3>
-                  <div className="flex flex-wrap items-center gap-4 text-gray-400 text-sm">
-                    <div className="flex items-center gap-1.5 font-medium">
-                      <Clock className="w-4 h-4" /> {req.date} at {req.time}
-                    </div>
-                    <div className="flex items-center gap-1.5 font-medium">
-                      <MapPin className="w-4 h-4" /> {req.address.split(',')[0]}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Cleaner Details Section */}
-                {req.status === 'open' ? (
-                  <div className="bg-amber-50 border border-amber-100 p-4 rounded-xl text-amber-700 text-sm font-medium">
-                    Waiting for a local cleaner to accept your job...
-                  </div>
-                ) : req.cleanerName ? (
-                  <div className="bg-purple-50/60 p-5 rounded-2xl border border-purple-100">
-                    <p className="text-[10px] font-black uppercase text-purple-600 tracking-widest mb-3">CLEANER DETAILS</p>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-bold text-lg text-gray-900 leading-none mb-1">{req.cleanerName}</p>
-                        <p className="text-sm text-gray-500">${req.hourlyRate}/hr • Expected: ${req.totalAmount}</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <button className="p-3 bg-white border border-blue-200 rounded-xl text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm">
-                          <MessageSquare className="w-6 h-6" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </Card>
-          ))
-        )}
-      </div>
-
-      {selectedReq && (
-        <ReviewModal 
-          request={selectedReq} 
-          onClose={() => {
-            setSelectedReq(null);
-            loadRequests();
-          }} 
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
+      {/* Payment Checkout Modal */}
+      {paymentReq && (
+        <PaymentCheckout
+          request={paymentReq}
+          isOpen={true}
+          onClose={() => setPaymentReq(null)}
+          onPaymentSuccess={handlePaymentSuccess}
         />
       )}
     </div>

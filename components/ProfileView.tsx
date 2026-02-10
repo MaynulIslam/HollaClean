@@ -3,27 +3,23 @@ import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import { Button, Card, Input } from './UI';
 import { storage } from '../utils/storage';
-<<<<<<< HEAD
+import StripeConnectSetup from './StripeConnectSetup';
+import VerificationBadge from './VerificationBadge';
+import OtpVerificationModal from './OtpVerificationModal';
 import {
   ArrowLeft, User as UserIcon, Camera, Shield, LogOut, ChevronDown, ChevronUp,
   CreditCard, Landmark, Star, MapPin, Phone, Mail, Clock, DollarSign,
-  CheckCircle, Award, Edit2, Save, X, Eye, EyeOff, Lock
+  CheckCircle, Award, Edit2, Save, X, Eye, EyeOff, Lock, Wallet, AlertCircle
 } from 'lucide-react';
-=======
-import { ArrowLeft, User as UserIcon, Camera, Shield, LogOut, ChevronDown, ChevronUp, CreditCard, Landmark } from 'lucide-react';
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
 
 interface Props {
   user: User;
   onBack: () => void;
   onLogout: () => void;
+  onUserUpdate?: (user: User) => void;
 }
 
-const ProfileView: React.FC<Props> = ({ user, onBack, onLogout }) => {
-<<<<<<< HEAD
-=======
-  // Initialize form data with existing user data or defaults
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
+const ProfileView: React.FC<Props> = ({ user, onBack, onLogout, onUserUpdate }) => {
   const [formData, setFormData] = useState<Partial<User & {
     cardName?: string;
     cardNumber?: string;
@@ -36,21 +32,23 @@ const ProfileView: React.FC<Props> = ({ user, onBack, onLogout }) => {
     accountNumber?: string;
   }>>({});
   const [confirmPassword, setConfirmPassword] = useState(user.password || '');
-<<<<<<< HEAD
   const [showPassword, setShowPassword] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-=======
-  const [isEditing, setIsEditing] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-
-  // Collapsible state
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
   const [expandedSections, setExpandedSections] = useState({
+    verification: true,
     personal: false,
     payment: false,
-    professional: false
+    professional: false,
+    stripe: false
+  });
+  const [verifyModalType, setVerifyModalType] = useState<'email' | 'phone' | null>(null);
+  const [showAddressConfirm, setShowAddressConfirm] = useState(false);
+  const [editingVerification, setEditingVerification] = useState<'email' | 'phone' | 'address' | null>(null);
+  const [verificationEditValue, setVerificationEditValue] = useState('');
+  const [verificationAddressEdit, setVerificationAddressEdit] = useState({
+    streetAddress: '', apartment: '', city: '', province: '', country: ''
   });
 
   const toggleSection = (section: keyof typeof expandedSections) => {
@@ -68,18 +66,10 @@ const ProfileView: React.FC<Props> = ({ user, onBack, onLogout }) => {
   };
 
   useEffect(() => {
-<<<<<<< HEAD
     const nameParts = user.name ? user.name.split(' ') : ['', ''];
     const firstName = user.firstName || nameParts[0] || '';
     const lastName = user.lastName || nameParts.slice(1).join(' ') || '';
 
-=======
-    // Handle data migration logic for older users
-    const nameParts = user.name ? user.name.split(' ') : ['', ''];
-    const firstName = user.firstName || nameParts[0] || '';
-    const lastName = user.lastName || nameParts.slice(1).join(' ') || '';
-    
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
     setFormData({
       ...user,
       firstName,
@@ -89,10 +79,6 @@ const ProfileView: React.FC<Props> = ({ user, onBack, onLogout }) => {
       city: user.city || 'Toronto',
       province: user.province || 'Ontario',
       country: user.country || 'Canada',
-<<<<<<< HEAD
-=======
-      // Mock payment data if not present (in a real app these come from a secure vault)
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
       cardName: (user as any).cardName || '',
       cardNumber: (user as any).cardNumber || '',
       expiry: (user as any).expiry || '',
@@ -113,29 +99,110 @@ const ProfileView: React.FC<Props> = ({ user, onBack, onLogout }) => {
     }
 
     setIsSaving(true);
-<<<<<<< HEAD
 
-=======
-    
-    // Construct the full name and full address from granular fields for backward compatibility
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
     const updatedName = `${formData.firstName} ${formData.lastName}`.trim();
     const updatedAddress = `${formData.streetAddress}${formData.apartment ? ', ' + formData.apartment : ''}, ${formData.city}, ${formData.province}, ${formData.country}`;
+
+    // Reset verification if phone or address changed
+    const phoneChanged = formData.phone !== user.phone;
+    const addressChanged = updatedAddress !== user.address;
 
     const updatedUser = {
       ...user,
       ...formData,
       name: updatedName,
-      address: updatedAddress
+      address: updatedAddress,
+      ...(phoneChanged ? { phoneVerified: false } : {}),
+      ...(addressChanged ? { addressVerified: false } : {}),
     };
 
     await storage.set(`user:${user.id}`, updatedUser);
     await storage.set('currentUser', updatedUser);
-<<<<<<< HEAD
+    if (onUserUpdate) onUserUpdate(updatedUser as User);
 
     setIsSaving(false);
     setIsEditing(false);
   };
+
+  const handleVerification = async (field: 'emailVerified' | 'phoneVerified' | 'addressVerified') => {
+    const updatedUser = { ...user, [field]: true };
+    await storage.set(`user:${user.id}`, updatedUser);
+    await storage.set('currentUser', updatedUser);
+    if (onUserUpdate) onUserUpdate(updatedUser);
+    setVerifyModalType(null);
+    setShowAddressConfirm(false);
+  };
+
+  const startEditingVerification = (field: 'email' | 'phone' | 'address') => {
+    setEditingVerification(field);
+    if (field === 'email') {
+      setVerificationEditValue(user.email || '');
+    } else if (field === 'phone') {
+      setVerificationEditValue(user.phone || '');
+    } else {
+      setVerificationAddressEdit({
+        streetAddress: user.streetAddress || '',
+        apartment: user.apartment || '',
+        city: user.city || 'Toronto',
+        province: user.province || 'Ontario',
+        country: user.country || 'Canada',
+      });
+    }
+  };
+
+  const handleSaveVerificationEdit = async () => {
+    if (!editingVerification) return;
+
+    let updates: Partial<User> = {};
+
+    if (editingVerification === 'email') {
+      const newEmail = verificationEditValue.trim().toLowerCase();
+      if (!newEmail || !newEmail.includes('@')) {
+        alert('Please enter a valid email address');
+        return;
+      }
+      if (newEmail === user.email) {
+        setEditingVerification(null);
+        return;
+      }
+      updates = { email: newEmail, emailVerified: false };
+    } else if (editingVerification === 'phone') {
+      const newPhone = verificationEditValue.trim();
+      if (!newPhone || newPhone.replace(/\D/g, '').length < 10) {
+        alert('Please enter a valid phone number (at least 10 digits)');
+        return;
+      }
+      if (newPhone === user.phone) {
+        setEditingVerification(null);
+        return;
+      }
+      updates = { phone: newPhone, phoneVerified: false };
+    } else {
+      const addr = verificationAddressEdit;
+      if (!addr.streetAddress.trim()) {
+        alert('Please enter a street address');
+        return;
+      }
+      const newFullAddress = `${addr.streetAddress}${addr.apartment ? ', ' + addr.apartment : ''}, ${addr.city}, ${addr.province}, ${addr.country}`;
+      updates = {
+        streetAddress: addr.streetAddress,
+        apartment: addr.apartment,
+        city: addr.city,
+        province: addr.province,
+        country: addr.country,
+        address: newFullAddress,
+        addressVerified: false,
+      };
+    }
+
+    const updatedUser = { ...user, ...updates };
+    await storage.set(`user:${user.id}`, updatedUser);
+    await storage.set('currentUser', updatedUser);
+    if (onUserUpdate) onUserUpdate(updatedUser as User);
+    setEditingVerification(null);
+  };
+
+  const verifiedCount = [user.emailVerified, user.phoneVerified, user.addressVerified].filter(Boolean).length;
 
   const isCleaner = user.type === 'cleaner';
   const primaryColor = isCleaner ? 'pink' : 'purple';
@@ -164,9 +231,13 @@ const ProfileView: React.FC<Props> = ({ user, onBack, onLogout }) => {
         <div className="flex flex-col md:flex-row items-center gap-6">
           {/* Avatar */}
           <div className="relative">
-            <div className={`w-24 h-24 rounded-2xl ${isCleaner ? 'bg-pink-100' : 'bg-purple-100'} flex items-center justify-center border-4 border-white shadow-xl`}>
-              <UserIcon className={`w-12 h-12 ${isCleaner ? 'text-pink-600' : 'text-purple-600'}`} />
-            </div>
+            {user.photoURL ? (
+              <img src={user.photoURL} alt="" className="w-24 h-24 rounded-2xl border-4 border-white shadow-xl object-cover" />
+            ) : (
+              <div className={`w-24 h-24 rounded-2xl ${isCleaner ? 'bg-pink-100' : 'bg-purple-100'} flex items-center justify-center border-4 border-white shadow-xl`}>
+                <UserIcon className={`w-12 h-12 ${isCleaner ? 'text-pink-600' : 'text-purple-600'}`} />
+              </div>
+            )}
             <button className={`absolute -bottom-2 -right-2 p-2 bg-white rounded-xl shadow-lg border border-gray-100 ${isCleaner ? 'text-pink-600 hover:bg-pink-50' : 'text-purple-600 hover:bg-purple-50'} transition-colors`}>
               <Camera className="w-4 h-4" />
             </button>
@@ -218,51 +289,330 @@ const ProfileView: React.FC<Props> = ({ user, onBack, onLogout }) => {
 
       {/* Sections */}
       <div className="space-y-4">
+        {/* Verification Status */}
+        <Card className="overflow-hidden">
+          <button
+            onClick={() => toggleSection('verification')}
+            className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/50 transition-colors text-left"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-green-100 text-green-600 rounded-xl">
+                <Shield className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900">Verification Status</h3>
+                <p className="text-xs text-gray-500">Verify your email, phone, and address</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`text-xs font-bold px-2 py-1 rounded-full ${
+                verifiedCount === 3 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+              }`}>
+                {verifiedCount}/3
+              </span>
+              {expandedSections.verification ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+            </div>
+          </button>
+
+          {expandedSections.verification && (
+            <div className="px-6 pb-6 border-t border-gray-100 pt-4 space-y-3">
+              {verifiedCount === 3 && (
+                <div className="bg-green-50 border border-green-200 rounded-xl p-3 flex items-center gap-2 mb-4">
+                  <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+                  <p className="text-sm text-green-700 font-medium">All verifications complete! Your profile is fully verified.</p>
+                </div>
+              )}
+
+              {/* Email */}
+              <div className="p-4 rounded-xl border border-gray-100 hover:bg-gray-50/50 transition-colors">
+                {editingVerification === 'email' ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Mail className="w-5 h-5 text-gray-400" />
+                      <p className="font-medium text-gray-900 text-sm">Update Email Address</p>
+                    </div>
+                    <input
+                      type="email"
+                      value={verificationEditValue}
+                      onChange={e => setVerificationEditValue(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-lg border-2 border-gray-200 focus:border-purple-500 outline-none text-sm"
+                      placeholder="new@email.com"
+                      autoFocus
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleSaveVerificationEdit}
+                        className={`px-4 py-2 ${isCleaner ? 'bg-pink-600' : 'bg-purple-600'} text-white rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity`}
+                      >
+                        Save & Re-verify
+                      </button>
+                      <button
+                        onClick={() => setEditingVerification(null)}
+                        className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-semibold hover:bg-gray-200 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <p className="text-xs text-amber-600">Changing your email will require re-verification.</p>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Mail className="w-5 h-5 text-gray-400" />
+                      <div>
+                        <p className="font-medium text-gray-900 text-sm">Email Address</p>
+                        <p className="text-xs text-gray-500">{user.email}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {user.emailVerified ? (
+                        <>
+                          <VerificationBadge verified={true} label="Email" showLabel />
+                          <button
+                            onClick={() => startEditingVerification('email')}
+                            className="px-3 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                          >
+                            Change
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => startEditingVerification('email')}
+                            className="px-3 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => setVerifyModalType('email')}
+                            className={`px-4 py-2 ${isCleaner ? 'bg-pink-100 text-pink-600 hover:bg-pink-200' : 'bg-purple-100 text-purple-600 hover:bg-purple-200'} rounded-lg text-xs font-semibold transition-colors`}
+                          >
+                            Verify Email
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Phone */}
+              <div className="p-4 rounded-xl border border-gray-100 hover:bg-gray-50/50 transition-colors">
+                {editingVerification === 'phone' ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Phone className="w-5 h-5 text-gray-400" />
+                      <p className="font-medium text-gray-900 text-sm">Update Phone Number</p>
+                    </div>
+                    <input
+                      type="tel"
+                      value={verificationEditValue}
+                      onChange={e => setVerificationEditValue(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-lg border-2 border-gray-200 focus:border-purple-500 outline-none text-sm"
+                      placeholder="(416) 555-0199"
+                      autoFocus
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleSaveVerificationEdit}
+                        className={`px-4 py-2 ${isCleaner ? 'bg-pink-600' : 'bg-purple-600'} text-white rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity`}
+                      >
+                        Save & Re-verify
+                      </button>
+                      <button
+                        onClick={() => setEditingVerification(null)}
+                        className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-semibold hover:bg-gray-200 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <p className="text-xs text-amber-600">Changing your phone will require re-verification.</p>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Phone className="w-5 h-5 text-gray-400" />
+                      <div>
+                        <p className="font-medium text-gray-900 text-sm">Phone Number</p>
+                        <p className="text-xs text-gray-500">{user.phone || 'Not set'}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {user.phoneVerified ? (
+                        <>
+                          <VerificationBadge verified={true} label="Phone" showLabel />
+                          <button
+                            onClick={() => startEditingVerification('phone')}
+                            className="px-3 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                          >
+                            Change
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => startEditingVerification('phone')}
+                            className="px-3 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => setVerifyModalType('phone')}
+                            className={`px-4 py-2 ${isCleaner ? 'bg-pink-100 text-pink-600 hover:bg-pink-200' : 'bg-purple-100 text-purple-600 hover:bg-purple-200'} rounded-lg text-xs font-semibold transition-colors`}
+                          >
+                            Verify Phone
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Address */}
+              <div className="p-4 rounded-xl border border-gray-100 hover:bg-gray-50/50 transition-colors">
+                {editingVerification === 'address' ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <MapPin className="w-5 h-5 text-gray-400" />
+                      <p className="font-medium text-gray-900 text-sm">Update Address</p>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="sm:col-span-2">
+                        <label className="text-xs font-medium text-gray-500 block mb-1">Street Address</label>
+                        <input
+                          type="text"
+                          value={verificationAddressEdit.streetAddress}
+                          onChange={e => setVerificationAddressEdit({ ...verificationAddressEdit, streetAddress: e.target.value })}
+                          className="w-full px-4 py-2.5 rounded-lg border-2 border-gray-200 focus:border-purple-500 outline-none text-sm"
+                          placeholder="123 King Street West"
+                          autoFocus
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-500 block mb-1">Apartment/Unit</label>
+                        <input
+                          type="text"
+                          value={verificationAddressEdit.apartment}
+                          onChange={e => setVerificationAddressEdit({ ...verificationAddressEdit, apartment: e.target.value })}
+                          className="w-full px-4 py-2.5 rounded-lg border-2 border-gray-200 focus:border-purple-500 outline-none text-sm"
+                          placeholder="Apt 4B"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-500 block mb-1">City</label>
+                        <input
+                          type="text"
+                          value={verificationAddressEdit.city}
+                          onChange={e => setVerificationAddressEdit({ ...verificationAddressEdit, city: e.target.value })}
+                          className="w-full px-4 py-2.5 rounded-lg border-2 border-gray-200 focus:border-purple-500 outline-none text-sm"
+                          placeholder="Toronto"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-500 block mb-1">Province</label>
+                        <select
+                          value={verificationAddressEdit.province}
+                          onChange={e => setVerificationAddressEdit({ ...verificationAddressEdit, province: e.target.value })}
+                          className="w-full px-4 py-2.5 rounded-lg border-2 border-gray-200 focus:border-purple-500 outline-none text-sm"
+                        >
+                          <option value="Ontario">Ontario</option>
+                          <option value="Quebec">Quebec</option>
+                          <option value="British Columbia">British Columbia</option>
+                          <option value="Alberta">Alberta</option>
+                          <option value="Manitoba">Manitoba</option>
+                          <option value="Saskatchewan">Saskatchewan</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-500 block mb-1">Country</label>
+                        <input
+                          type="text"
+                          value={verificationAddressEdit.country}
+                          disabled
+                          className="w-full px-4 py-2.5 rounded-lg border-2 border-gray-100 bg-gray-50 text-gray-500 text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleSaveVerificationEdit}
+                        className={`px-4 py-2 ${isCleaner ? 'bg-pink-600' : 'bg-purple-600'} text-white rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity`}
+                      >
+                        Save & Re-verify
+                      </button>
+                      <button
+                        onClick={() => setEditingVerification(null)}
+                        className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-semibold hover:bg-gray-200 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <p className="text-xs text-amber-600">Changing your address will require re-verification.</p>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <MapPin className="w-5 h-5 text-gray-400" />
+                      <div>
+                        <p className="font-medium text-gray-900 text-sm">Address</p>
+                        <p className="text-xs text-gray-500 max-w-[200px] truncate">{user.address || 'Not set'}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {user.addressVerified ? (
+                        <>
+                          <VerificationBadge verified={true} label="Address" showLabel />
+                          <button
+                            onClick={() => startEditingVerification('address')}
+                            className="px-3 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                          >
+                            Change
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => startEditingVerification('address')}
+                            className="px-3 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => setShowAddressConfirm(true)}
+                            className={`px-4 py-2 ${isCleaner ? 'bg-pink-100 text-pink-600 hover:bg-pink-200' : 'bg-purple-100 text-purple-600 hover:bg-purple-200'} rounded-lg text-xs font-semibold transition-colors`}
+                          >
+                            Verify Address
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {user.authProvider === 'google' && (
+                <div className="flex items-center gap-2 pt-2 text-xs text-gray-400">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24">
+                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                  </svg>
+                  Signed in with Google
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+
         {/* Personal Information */}
         <Card className="overflow-hidden">
           <button
-=======
-    
-    setIsSaving(false);
-    setIsEditing(false);
-    alert("Profile updated successfully!");
-  };
-
-  return (
-    <div className="animate-in slide-in-from-bottom-4 duration-300">
-      <div className="flex items-center justify-between mb-8">
-        <button onClick={onBack} className="flex items-center gap-2 text-gray-500 hover:text-purple-600 transition-colors">
-          <ArrowLeft className="w-4 h-4" />
-          <span className="text-sm font-semibold">Back</span>
-        </button>
-        <button onClick={onLogout} className="flex items-center gap-2 text-red-500 font-bold text-sm">
-          <LogOut className="w-4 h-4" /> Logout
-        </button>
-      </div>
-
-      <div className="flex flex-col items-center mb-8">
-        <div className="relative">
-          <div className="w-24 h-24 rounded-3xl bg-purple-100 flex items-center justify-center text-purple-600 border-4 border-white shadow-xl">
-            <UserIcon className="w-12 h-12" />
-          </div>
-          <button className="absolute -bottom-2 -right-2 p-2 bg-white rounded-xl shadow-lg border border-gray-100 text-purple-600">
-            <Camera className="w-4 h-4" />
-          </button>
-        </div>
-        <h2 className="mt-4 text-2xl font-bold font-outfit capitalize">{formData.firstName} {formData.lastName}</h2>
-        <p className="text-gray-400 text-xs font-black uppercase tracking-widest">{user.type}</p>
-      </div>
-
-      <div className="space-y-4">
-        {/* Personal Information Collapsible */}
-        <Card className="p-0 overflow-hidden">
-          <button 
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
             onClick={() => toggleSection('personal')}
             className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/50 transition-colors text-left"
           >
             <div className="flex items-center gap-3">
-<<<<<<< HEAD
               <div className={`p-2.5 ${isCleaner ? 'bg-pink-100 text-pink-600' : 'bg-purple-100 text-purple-600'} rounded-xl`}>
                 <UserIcon className="w-5 h-5" />
               </div>
@@ -385,125 +735,10 @@ const ProfileView: React.FC<Props> = ({ user, onBack, onLogout }) => {
         {/* Payment Information */}
         <Card className="overflow-hidden">
           <button
-=======
-              <div className="p-2 bg-purple-100 rounded-lg text-purple-600">
-                <UserIcon className="w-5 h-5" />
-              </div>
-              <h3 className="text-lg font-bold">Personal Information</h3>
-            </div>
-            {expandedSections.personal ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
-          </button>
-          
-          <div className={`transition-all duration-300 ease-in-out border-t border-gray-50 ${expandedSections.personal ? 'max-h-[2000px] opacity-100 p-6' : 'max-h-0 opacity-0 overflow-hidden'}`}>
-            <div className="flex items-center justify-between mb-6">
-              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">BASIC & ADDRESS INFO</span>
-              {!isEditing && (
-                <button onClick={() => startEditing('personal')} className="text-purple-600 text-sm font-bold hover:underline bg-purple-50 px-3 py-1 rounded-lg">
-                  Edit Profile
-                </button>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Input 
-                label="First Name" 
-                value={formData.firstName || ''} 
-                onChange={(e: any) => setFormData({...formData, firstName: e.target.value})} 
-                disabled={!isEditing} 
-                placeholder="First Name"
-              />
-              <Input 
-                label="Last Name" 
-                value={formData.lastName || ''} 
-                onChange={(e: any) => setFormData({...formData, lastName: e.target.value})} 
-                disabled={!isEditing} 
-                placeholder="Last Name"
-              />
-              <Input 
-                label="Email Address" 
-                value={formData.email || ''} 
-                disabled 
-                className="bg-gray-50 text-gray-400"
-              />
-              <Input 
-                label="Phone Number" 
-                value={formData.phone || ''} 
-                onChange={(e: any) => setFormData({...formData, phone: e.target.value})} 
-                disabled={!isEditing} 
-                placeholder="Phone Number"
-              />
-              <Input 
-                label="Password" 
-                type="password"
-                value={formData.password || ''} 
-                onChange={(e: any) => setFormData({...formData, password: e.target.value})} 
-                disabled={!isEditing} 
-                placeholder="••••••••"
-              />
-              <Input 
-                label="Confirm Password" 
-                type="password"
-                value={confirmPassword} 
-                onChange={(e: any) => setConfirmPassword(e.target.value)} 
-                disabled={!isEditing} 
-                placeholder="••••••••"
-              />
-            </div>
-
-            <div className="pt-8 border-t border-gray-100 mt-8 space-y-6">
-              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">ADDRESS DETAILS</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="md:col-span-2">
-                  <Input 
-                    label="Street Address" 
-                    value={formData.streetAddress || ''} 
-                    onChange={(e: any) => setFormData({...formData, streetAddress: e.target.value})} 
-                    disabled={!isEditing} 
-                    placeholder="123 Example St"
-                  />
-                </div>
-                <Input 
-                  label="Apartment/Unit" 
-                  value={formData.apartment || ''} 
-                  onChange={(e: any) => setFormData({...formData, apartment: e.target.value})} 
-                  disabled={!isEditing} 
-                  placeholder="Apt 4B (Optional)"
-                />
-                <Input 
-                  label="City" 
-                  value={formData.city || ''} 
-                  onChange={(e: any) => setFormData({...formData, city: e.target.value})} 
-                  disabled={!isEditing} 
-                  placeholder="City"
-                />
-                <Input 
-                  label="Province" 
-                  value={formData.province || ''} 
-                  onChange={(e: any) => setFormData({...formData, province: e.target.value})} 
-                  disabled={!isEditing} 
-                  placeholder="Ontario"
-                />
-                <Input 
-                  label="Country" 
-                  value={formData.country || ''} 
-                  onChange={(e: any) => setFormData({...formData, country: e.target.value})} 
-                  disabled={!isEditing} 
-                  placeholder="Canada"
-                />
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        {/* Payment Information Collapsible */}
-        <Card className="p-0 overflow-hidden">
-          <button 
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
             onClick={() => toggleSection('payment')}
             className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/50 transition-colors text-left"
           >
             <div className="flex items-center gap-3">
-<<<<<<< HEAD
               <div className="p-2.5 bg-blue-100 text-blue-600 rounded-xl">
                 {isCleaner ? <Landmark className="w-5 h-5" /> : <CreditCard className="w-5 h-5" />}
               </div>
@@ -547,7 +782,7 @@ const ProfileView: React.FC<Props> = ({ user, onBack, onLogout }) => {
                     />
                     <Input
                       label="Card Number"
-                      placeholder="•••• •••• •••• 1234"
+                      placeholder="**** **** **** 1234"
                       value={formData.cardNumber || ''}
                       onChange={(e: any) => setFormData({ ...formData, cardNumber: e.target.value })}
                       disabled={!isEditing}
@@ -561,7 +796,7 @@ const ProfileView: React.FC<Props> = ({ user, onBack, onLogout }) => {
                     />
                     <Input
                       label="CVV"
-                      placeholder="•••"
+                      placeholder="***"
                       type="password"
                       value={formData.cvv || ''}
                       onChange={(e: any) => setFormData({ ...formData, cvv: e.target.value })}
@@ -601,7 +836,7 @@ const ProfileView: React.FC<Props> = ({ user, onBack, onLogout }) => {
                     <div className="md:col-span-2">
                       <Input
                         label="Account Number"
-                        placeholder="•••••1234"
+                        placeholder="*****1234"
                         value={formData.accountNumber || ''}
                         onChange={(e: any) => setFormData({ ...formData, accountNumber: e.target.value })}
                         disabled={!isEditing}
@@ -619,126 +854,41 @@ const ProfileView: React.FC<Props> = ({ user, onBack, onLogout }) => {
           )}
         </Card>
 
+        {/* Stripe Connect Payouts (Cleaner only) */}
+        {isCleaner && (
+          <Card className="overflow-hidden">
+            <button
+              onClick={() => toggleSection('stripe')}
+              className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/50 transition-colors text-left"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-green-100 text-green-600 rounded-xl">
+                  <Wallet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900">Stripe Payouts</h3>
+                  <p className="text-xs text-gray-500">Set up and manage your payment account</p>
+                </div>
+              </div>
+              {expandedSections.stripe ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+            </button>
+
+            {expandedSections.stripe && (
+              <div className="p-6 border-t border-gray-100 animate-in fade-in duration-200">
+                <StripeConnectSetup user={user} />
+              </div>
+            )}
+          </Card>
+        )}
+
         {/* Professional Details (Cleaner only) */}
         {isCleaner && (
           <Card className="overflow-hidden">
             <button
-=======
-              <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
-                <CreditCard className="w-5 h-5" />
-              </div>
-              <h3 className="text-lg font-bold">Payment Information</h3>
-            </div>
-            {expandedSections.payment ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
-          </button>
-          
-          <div className={`transition-all duration-300 ease-in-out border-t border-gray-50 ${expandedSections.payment ? 'max-h-[1000px] opacity-100 p-6' : 'max-h-0 opacity-0 overflow-hidden'}`}>
-            <div className="flex items-center justify-between mb-6">
-              <p className="text-sm text-gray-500">
-                {user.type === 'homeowner' 
-                  ? 'Manage your credit card and billing methods for cleaning services.' 
-                  : 'Set up your bank details to receive payments for completed jobs.'}
-              </p>
-              {!isEditing && (
-                <button onClick={() => startEditing('payment')} className="text-blue-600 text-xs font-bold hover:underline bg-blue-50 px-3 py-1.5 rounded-lg whitespace-nowrap ml-4">
-                  Add/Edit Payment Info
-                </button>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {user.type === 'homeowner' ? (
-                <>
-                  <Input 
-                    label="Cardholder Name" 
-                    placeholder="John Doe" 
-                    value={formData.cardName || ''}
-                    onChange={(e: any) => setFormData({...formData, cardName: e.target.value})}
-                    disabled={!isEditing} 
-                  />
-                  <Input 
-                    label="Card Number" 
-                    placeholder="•••• •••• •••• 1234" 
-                    value={formData.cardNumber || ''}
-                    onChange={(e: any) => setFormData({...formData, cardNumber: e.target.value})}
-                    disabled={!isEditing} 
-                  />
-                  <Input 
-                    label="Expiry Date" 
-                    placeholder="MM/YY" 
-                    value={formData.expiry || ''}
-                    onChange={(e: any) => setFormData({...formData, expiry: e.target.value})}
-                    disabled={!isEditing} 
-                  />
-                  <Input 
-                    label="CVV" 
-                    placeholder="•••" 
-                    type="password" 
-                    value={formData.cvv || ''}
-                    onChange={(e: any) => setFormData({...formData, cvv: e.target.value})}
-                    disabled={!isEditing} 
-                  />
-                </>
-              ) : (
-                <>
-                  <Input 
-                    label="Bank Name" 
-                    placeholder="RBC Royal Bank" 
-                    value={formData.bankName || ''}
-                    onChange={(e: any) => setFormData({...formData, bankName: e.target.value})}
-                    disabled={!isEditing} 
-                  />
-                  <Input 
-                    label="Account Holder" 
-                    placeholder="Jane Smith" 
-                    value={formData.accountHolder || ''}
-                    onChange={(e: any) => setFormData({...formData, accountHolder: e.target.value})}
-                    disabled={!isEditing} 
-                  />
-                  <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <Input 
-                      label="Transit Number" 
-                      placeholder="00000" 
-                      value={formData.transitNumber || ''}
-                      onChange={(e: any) => setFormData({...formData, transitNumber: e.target.value})}
-                      disabled={!isEditing} 
-                    />
-                    <Input 
-                      label="Institution Number" 
-                      placeholder="000" 
-                      value={formData.institutionNumber || ''}
-                      onChange={(e: any) => setFormData({...formData, institutionNumber: e.target.value})}
-                      disabled={!isEditing} 
-                    />
-                    <Input 
-                      label="Account Number" 
-                      placeholder="•••••1234" 
-                      value={formData.accountNumber || ''}
-                      onChange={(e: any) => setFormData({...formData, accountNumber: e.target.value})}
-                      disabled={!isEditing} 
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-            
-            <div className="mt-6 flex items-center gap-3 bg-blue-50/50 p-4 rounded-xl border border-blue-100">
-              <Shield className="w-5 h-5 text-blue-600" />
-              <p className="text-xs text-blue-700 font-medium">Your payment details are encrypted and stored securely.</p>
-            </div>
-          </div>
-        </Card>
-
-        {/* Professional Details (Cleaner only) */}
-        {user.type === 'cleaner' && (
-          <Card className="p-0 overflow-hidden">
-            <button 
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
               onClick={() => toggleSection('professional')}
               className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/50 transition-colors text-left"
             >
               <div className="flex items-center gap-3">
-<<<<<<< HEAD
                 <div className="p-2.5 bg-pink-100 text-pink-600 rounded-xl">
                   <Award className="w-5 h-5" />
                 </div>
@@ -848,59 +998,12 @@ const ProfileView: React.FC<Props> = ({ user, onBack, onLogout }) => {
             </Button>
             <Button variant="secondary" onClick={() => setIsEditing(false)} disabled={isSaving}>
               <X className="w-4 h-4" />
-=======
-                <div className="p-2 bg-pink-100 rounded-lg text-pink-600">
-                  <Landmark className="w-5 h-5" />
-                </div>
-                <h3 className="text-lg font-bold">Professional Details</h3>
-              </div>
-              {expandedSections.professional ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
-            </button>
-            
-            <div className={`transition-all duration-300 ease-in-out border-t border-gray-50 ${expandedSections.professional ? 'max-h-[1000px] opacity-100 p-6' : 'max-h-0 opacity-0 overflow-hidden'}`}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Input 
-                  label="Hourly Rate ($/hr)" 
-                  type="number" 
-                  value={formData.hourlyRate || 0} 
-                  onChange={(e: any) => setFormData({...formData, hourlyRate: Number(e.target.value)})} 
-                  disabled={!isEditing} 
-                />
-                <Input 
-                  label="Years of Experience" 
-                  type="number" 
-                  value={formData.experience || 0} 
-                  onChange={(e: any) => setFormData({...formData, experience: Number(e.target.value)})} 
-                  disabled={!isEditing} 
-                />
-              </div>
-              <div className="flex flex-col gap-1 mt-6">
-                <label className="text-sm font-medium text-gray-700 ml-1">Bio</label>
-                <textarea 
-                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 disabled:bg-gray-50 disabled:text-gray-500 focus:border-purple-500 outline-none h-24 transition-all"
-                  value={formData.bio || ''}
-                  onChange={(e: any) => setFormData({...formData, bio: e.target.value})}
-                  disabled={!isEditing}
-                />
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {isEditing && (
-          <div className="flex flex-col sm:flex-row gap-3 pt-6 animate-in fade-in duration-300">
-            <Button onClick={handleSave} className="flex-1" disabled={isSaving}>
-              {isSaving ? 'Saving...' : 'Save Changes'}
-            </Button>
-            <Button variant="secondary" onClick={() => setIsEditing(false)} disabled={isSaving}>
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
               Cancel
             </Button>
           </div>
         )}
       </div>
 
-<<<<<<< HEAD
       {/* Footer */}
       <div className="mt-8 text-center">
         <div className="flex items-center justify-center gap-2 text-gray-400">
@@ -908,12 +1011,54 @@ const ProfileView: React.FC<Props> = ({ user, onBack, onLogout }) => {
           <span className="text-xs font-semibold uppercase tracking-wider">Your account is secured with HollaClean</span>
         </div>
         <p className="text-xs text-gray-400 mt-2">Member since {new Date(user.createdAt).toLocaleDateString('en-CA', { month: 'long', year: 'numeric' })}</p>
-=======
-      <div className="mt-8 text-center text-gray-400 flex items-center justify-center gap-2">
-        <Shield className="w-4 h-4" />
-        <span className="text-xs font-bold uppercase tracking-widest">Account secured with HollaClean</span>
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
       </div>
+
+      {/* OTP Verification Modal */}
+      {verifyModalType && (
+        <OtpVerificationModal
+          type={verifyModalType}
+          target={verifyModalType === 'email' ? user.email : user.phone}
+          onVerify={() => handleVerification(verifyModalType === 'email' ? 'emailVerified' : 'phoneVerified')}
+          onClose={() => setVerifyModalType(null)}
+        />
+      )}
+
+      {/* Address Confirmation Dialog */}
+      {showAddressConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowAddressConfirm(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 animate-in zoom-in-95 fade-in duration-200">
+            <div className="text-center mb-4">
+              <div className="w-14 h-14 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <MapPin className="w-7 h-7 text-purple-600" />
+              </div>
+              <h3 className="text-xl font-bold font-outfit text-gray-900">Confirm Your Address</h3>
+              <p className="text-sm text-gray-500 mt-1">Please confirm this is your correct address</p>
+            </div>
+
+            <div className="bg-gray-50 rounded-xl p-4 mb-6">
+              <p className="font-medium text-gray-900 text-sm">{user.streetAddress}{user.apartment ? `, ${user.apartment}` : ''}</p>
+              <p className="text-sm text-gray-600">{user.city}, {user.province}</p>
+              <p className="text-sm text-gray-600">{user.country}</p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleVerification('addressVerified')}
+                className="flex-1 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-xl hover:opacity-90 transition-opacity"
+              >
+                Yes, this is correct
+              </button>
+              <button
+                onClick={() => setShowAddressConfirm(false)}
+                className="flex-1 py-3 bg-gray-100 text-gray-700 font-semibold rounded-xl hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

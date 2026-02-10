@@ -89,10 +89,29 @@ export const CONFIG = {
   features: {
     messaging: false, // In-app messaging (coming soon)
     notifications: true, // Push notifications
-    payments: false, // Stripe payments integration (coming soon)
+    payments: true, // Stripe payments integration
     mapIntegration: true, // Google Maps links
     imageUpload: true, // Photo uploads
     reviews: true, // Review system
+    googleAuth: true, // Google sign-in via Firebase
+    verificationSystem: true, // Email/phone/address verification
+    paymentReminders: true, // Recurring payment reminder system
+  },
+
+  // Payment reminder defaults
+  reminders: {
+    defaultEnabled: true,
+    defaultIntervalMinutes: 30,
+    defaultStartHoursBefore: 3,
+    defaultMaxReminders: 6,
+    checkIntervalMs: 60000, // Check every 60 seconds
+  },
+
+  // Server configuration
+  server: {
+    apiUrl: 'http://localhost:3001/api',
+    // Stripe publishable key - set this in production
+    stripePublishableKey: '', // pk_test_xxx or pk_live_xxx
   },
 
   // Contact and support

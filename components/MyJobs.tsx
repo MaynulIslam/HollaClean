@@ -3,15 +3,17 @@ import React, { useState, useEffect } from 'react';
 import { CleaningRequest } from '../types';
 import { storage } from '../utils/storage';
 import { Card, Button, Badge } from './UI';
-<<<<<<< HEAD
+import ComingSoon, { useComingSoon } from './ComingSoon';
+import { CONFIG } from '../utils/config';
+import { NotificationHelpers } from '../utils/notifications';
+import { ExternalNotify } from '../utils/externalNotifications';
+import { stopRemindersForRequest } from '../utils/reminderService';
+import { notifyAdmin } from '../utils/adminNotifications';
 import {
   MessageCircle, MapPin, Clock, CheckCircle, PlayCircle, AlertCircle,
   Phone, DollarSign, Calendar, User, Star, ChevronDown, ChevronUp,
-  Navigation, XCircle, RefreshCw, Sparkles, Image as ImageIcon
+  Navigation, XCircle, RefreshCw, Sparkles, Image as ImageIcon, CreditCard, Mail, X
 } from 'lucide-react';
-=======
-import { MessageCircle, MapPin, Clock, CheckCircle, PlayCircle, AlertCircle } from 'lucide-react';
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
 
 interface Props {
   cleanerId: string;
@@ -20,35 +22,28 @@ interface Props {
 
 const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
   const [jobs, setJobs] = useState<CleaningRequest[]>([]);
-<<<<<<< HEAD
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [toast, setToast] = useState<{ message: string; email?: string } | null>(null);
+  const { isOpen: isComingSoonOpen, feature: comingSoonFeature, showComingSoon, hideComingSoon } = useComingSoon();
 
   const loadJobs = async () => {
     setIsLoading(true);
-=======
-
-  const loadJobs = async () => {
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
     const keys = await storage.list('request:');
     const items: CleaningRequest[] = [];
     for (const key of keys) {
       const req = await storage.get(key);
       if (req && req.acceptedBy === cleanerId) {
-        const isActive = ['accepted', 'in_progress'].includes(req.status);
+        const isActive = ['accepted', 'in_progress', 'awaiting_payment'].includes(req.status);
         if (type === 'active' && isActive) items.push(req);
         if (type === 'history' && req.status === 'completed') items.push(req);
       }
     }
-<<<<<<< HEAD
     setJobs(items.sort((a, b) => {
       if (type === 'active') return new Date(a.date).getTime() - new Date(b.date).getTime();
       return new Date(b.completedAt || b.date).getTime() - new Date(a.completedAt || a.date).getTime();
     }));
     setIsLoading(false);
-=======
-    setJobs(items.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
   };
 
   useEffect(() => {
@@ -59,50 +54,96 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
 
   const updateStatus = async (id: string, status: CleaningRequest['status']) => {
     const req = await storage.get(`request:${id}`);
-    req.status = status;
-    if (status === 'completed') {
+
+    if (status === 'in_progress') {
+      // Cleaner wants to start → homeowner must pay first
+      // Set to awaiting_payment so homeowner sees "Pay Now"
+      req.status = 'awaiting_payment';
+      req.paymentStatus = 'awaiting';
+
+      // Notify homeowner that cleaner is ready and payment is needed (in-app)
+      await NotificationHelpers.paymentRequired(req.homeownerId, req.cleanerName || 'Your cleaner', req.serviceType, req.totalAmount);
+
+      // Send email + push notification to homeowner
+      if (req.homeownerEmail) {
+        ExternalNotify.paymentRequired(req.homeownerEmail, req.homeownerName || 'Homeowner', req.cleanerName || 'Your cleaner', req.serviceType, req.totalAmount);
+      }
+
+      // Show confirmation toast to cleaner
+      setToast({ message: `Homeowner notified! A notification and email has been sent to ${req.homeownerName}.`, email: req.homeownerEmail });
+      setTimeout(() => setToast(null), 8000);
+    } else if (status === 'completed') {
+      // Cleaner marks job as done → payment already held, now release it
+      req.status = 'completed';
       req.completedAt = new Date().toISOString();
       req.paymentStatus = 'paid';
-<<<<<<< HEAD
+      req.paidAt = req.paidAt || new Date().toISOString();
 
-=======
-      
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
-      // Update cleaner total earnings
+      // Stop any remaining reminders
+      await stopRemindersForRequest(id, 'paid');
+
+      // Credit cleaner earnings (payment was already collected & held)
       const user = await storage.get(`user:${cleanerId}`);
-      user.totalEarnings = (user.totalEarnings || 0) + req.cleanerPayout;
-      await storage.set(`user:${cleanerId}`, user);
+      if (user) {
+        user.totalEarnings = (user.totalEarnings || 0) + req.cleanerPayout;
+        await storage.set(`user:${cleanerId}`, user);
+      }
+
+      // Notify admin about job completion
+      notifyAdmin('job_completed', {
+        serviceType: req.serviceType,
+        amount: req.cleanerPayout,
+        cleanerName: req.cleanerName || undefined,
+        homeownerName: req.homeownerName,
+        requestId: req.id,
+      });
+
+      // Notify both parties — payment released (in-app)
+      await NotificationHelpers.paymentReleased(req.homeownerId, req.cleanerName || 'Your cleaner', req.serviceType, req.cleanerPayout);
+      await NotificationHelpers.paymentReceived(cleanerId, req.cleanerPayout, req.serviceType);
+
+      // Send email + push to homeowner about job completion
+      if (req.homeownerEmail) {
+        ExternalNotify.jobCompleted(req.homeownerEmail, req.homeownerName || 'Homeowner', req.cleanerName || 'Your cleaner', req.serviceType, req.cleanerPayout);
+      }
+      // Send email + push to cleaner about payment
+      if (user) {
+        ExternalNotify.paymentReceived(user.email, user.name || 'Cleaner', req.cleanerPayout, req.serviceType);
+      }
+    } else {
+      req.status = status;
     }
+
     await storage.set(`request:${id}`, req);
     loadJobs();
   };
 
+  const handleMessageClick = () => {
+    if (!CONFIG.features.messaging) {
+      showComingSoon('messaging');
+    }
+  };
+
   const handleCancel = async (id: string) => {
-<<<<<<< HEAD
     if (window.confirm("Release this job back to the marketplace? The homeowner will need to find another cleaner.")) {
-=======
-    if (window.confirm("Release this job back to the marketplace?")) {
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
       const req = await storage.get(`request:${id}`);
       req.status = 'open';
       req.acceptedBy = null;
       req.cleanerName = null;
-<<<<<<< HEAD
       req.cleanerPhone = null;
       req.hourlyRate = null;
-=======
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
       req.acceptedAt = null;
       await storage.set(`request:${id}`, req);
+      await stopRemindersForRequest(id, 'cancelled');
       loadJobs();
     }
   };
 
-<<<<<<< HEAD
   const getStatusInfo = (status: string) => {
     const statusMap: Record<string, { color: string; bg: string; label: string }> = {
       accepted: { color: 'text-blue-600', bg: 'bg-blue-100', label: 'Ready to Start' },
       in_progress: { color: 'text-purple-600', bg: 'bg-purple-100', label: 'In Progress' },
+      awaiting_payment: { color: 'text-orange-600', bg: 'bg-orange-100', label: 'Awaiting Payment' },
       completed: { color: 'text-green-600', bg: 'bg-green-100', label: 'Completed' }
     };
     return statusMap[status] || statusMap.accepted;
@@ -112,6 +153,29 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
 
   return (
     <div className="space-y-4 animate-in fade-in duration-300">
+      {/* Toast notification */}
+      {toast && (
+        <div className="bg-green-50 border border-green-200 rounded-xl p-4 animate-in slide-in-from-top duration-300">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center flex-shrink-0">
+              <Mail className="w-5 h-5 text-green-600" />
+            </div>
+            <div className="flex-1">
+              <p className="font-semibold text-green-800 text-sm">{toast.message}</p>
+              {toast.email && (
+                <p className="text-xs text-green-600 mt-1">
+                  Email sent to: {toast.email}
+                </p>
+              )}
+              <p className="text-xs text-green-500 mt-1">Waiting for homeowner to authorize payment before you can start.</p>
+            </div>
+            <button onClick={() => setToast(null)} className="text-green-400 hover:text-green-600 flex-shrink-0">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header Stats for History */}
       {type === 'history' && jobs.length > 0 && (
         <Card className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 border-green-200">
@@ -230,7 +294,11 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
                     {job.status === 'accepted' ? (
                       <>
                         <Button
-                          onClick={() => updateStatus(job.id, 'in_progress')}
+                          onClick={() => {
+                            if (window.confirm('Ready to start? The homeowner will be asked to pay before you begin cleaning.')) {
+                              updateStatus(job.id, 'in_progress');
+                            }
+                          }}
                           className="flex-1 md:flex-none bg-gradient-to-r from-purple-600 to-pink-600"
                         >
                           <PlayCircle className="w-5 h-5" />
@@ -245,15 +313,35 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
                           Release Job
                         </Button>
                       </>
-                    ) : (
-                      <Button
-                        onClick={() => updateStatus(job.id, 'completed')}
-                        className="flex-1 md:flex-none bg-gradient-to-r from-green-500 to-emerald-500"
-                      >
-                        <CheckCircle className="w-5 h-5" />
-                        Mark as Complete
-                      </Button>
-                    )}
+                    ) : job.status === 'awaiting_payment' ? (
+                      <div className="flex items-center gap-3 flex-1 p-3 bg-orange-50 border border-orange-200 rounded-xl">
+                        <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center">
+                          <Clock className="w-4 h-4 text-orange-600" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-orange-800">Waiting for homeowner payment</p>
+                          <p className="text-xs text-orange-600">Cleaning will begin once payment is confirmed</p>
+                        </div>
+                      </div>
+                    ) : job.status === 'in_progress' ? (
+                      <div className="flex flex-col sm:flex-row gap-3 flex-1">
+                        <Button
+                          onClick={() => {
+                            if (window.confirm('Mark this job as complete? Payment will be released to you.')) {
+                              updateStatus(job.id, 'completed');
+                            }
+                          }}
+                          className="flex-1 md:flex-none bg-gradient-to-r from-green-500 to-emerald-500"
+                        >
+                          <CheckCircle className="w-5 h-5" />
+                          Mark as Complete
+                        </Button>
+                        <div className="flex items-center gap-2 text-xs text-green-600 bg-green-50 px-3 py-2 rounded-lg">
+                          <CreditCard className="w-4 h-4" />
+                          <span>Payment held — released on completion</span>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 )}
               </div>
@@ -275,12 +363,17 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <button className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-600 hover:bg-blue-100 transition-colors">
+                        <button
+                          onClick={handleMessageClick}
+                          className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-600 hover:bg-blue-100 transition-colors"
+                          title="Send message to homeowner (Coming Soon)"
+                        >
                           <MessageCircle className="w-5 h-5" />
                         </button>
                         <a
                           href={`tel:${job.homeownerPhone}`}
                           className="p-3 bg-green-50 border border-green-200 rounded-xl text-green-600 hover:bg-green-100 transition-colors"
+                          title={`Call ${job.homeownerName}`}
                         >
                           <Phone className="w-5 h-5" />
                         </a>
@@ -353,98 +446,14 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
             </Card>
           );
         })
-=======
-  return (
-    <div className="space-y-6 animate-in slide-in-from-right-4">
-      {jobs.length === 0 ? (
-        <Card className="py-20 text-center">
-          <p className="text-gray-400 font-bold">No {type === 'active' ? 'active' : 'completed'} jobs found.</p>
-        </Card>
-      ) : (
-        jobs.map(job => (
-          <Card key={job.id} className="relative overflow-hidden p-0 shadow-2xl shadow-gray-200/50 border border-gray-50">
-            <div className="flex flex-col md:flex-row">
-              <div className="flex-1 p-8 space-y-6">
-                <div className="flex items-center justify-between">
-                  <Badge status={job.status} />
-                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">EARN: ${job.cleanerPayout.toFixed(2)}</span>
-                </div>
-                
-                <div className="space-y-3">
-                  <h3 className="text-3xl font-bold font-outfit text-gray-900 leading-tight">{job.serviceType}</h3>
-                  <div className="flex flex-wrap items-center gap-6 text-sm text-gray-400 font-bold">
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-5 h-5 text-gray-300" /> 
-                      {job.date} @ {job.time}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-5 h-5 text-gray-300" /> 
-                      {job.address}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Customer Section matching screenshot */}
-                <div className="bg-[#f8fafc] p-6 rounded-[32px] flex items-center justify-between border border-gray-100 shadow-inner">
-                  <div>
-                    <p className="text-[10px] font-black uppercase text-gray-400 tracking-[0.2em] mb-2">CUSTOMER</p>
-                    <p className="font-black text-xl text-gray-800 leading-none mb-1">{job.homeownerName}</p>
-                    <p className="text-sm text-gray-400 font-bold">{job.homeownerPhone}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button className="p-4 bg-white border border-blue-100 rounded-[20px] text-blue-500 hover:bg-blue-500 hover:text-white transition-all shadow-md group">
-                      <MessageCircle className="w-7 h-7 fill-current group-hover:fill-white" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Sidebar matching screenshot */}
-              {type === 'active' && (
-                <div className="md:w-72 flex flex-col gap-4 p-8 md:bg-gray-50/20 border-t md:border-t-0 md:border-l border-gray-100 justify-center">
-                  {job.status === 'accepted' ? (
-                    <>
-                      <button 
-                        onClick={() => updateStatus(job.id, 'in_progress')} 
-                        className="w-full bg-gradient-to-r from-[#9333ea] to-[#a855f7] text-white rounded-[24px] py-5 font-black text-lg flex items-center justify-center gap-3 shadow-xl shadow-purple-200 active:scale-95 transition-transform"
-                      >
-                        <PlayCircle className="w-6 h-6" /> Start Job
-                      </button>
-                      <button 
-                        onClick={() => handleCancel(job.id)} 
-                        className="w-full bg-gradient-to-r from-[#ef4444] to-[#dc2626] text-white rounded-[24px] py-5 font-black text-lg shadow-xl shadow-red-100 active:scale-95 transition-transform"
-                      >
-                        Release Job
-                      </button>
-                    </>
-                  ) : (
-                    <button 
-                      onClick={() => updateStatus(job.id, 'completed')} 
-                      className="w-full bg-emerald-500 hover:bg-emerald-600 text-white rounded-[24px] py-5 font-black text-lg shadow-xl shadow-emerald-100 active:scale-95 transition-transform"
-                    >
-                      <CheckCircle className="w-6 h-6" /> Complete
-                    </button>
-                  )}
-                  <button className="w-full py-4 text-sm font-black text-purple-600 bg-white border border-purple-50 rounded-[20px] hover:bg-purple-50 transition-colors">
-                    Help / Support
-                  </button>
-                </div>
-              )}
-
-              {type === 'history' && (
-                <div className="md:w-72 flex flex-col justify-center items-center gap-2 p-8 md:bg-gray-50/20 border-t md:border-t-0 md:border-l border-gray-100">
-                   <div className="text-center">
-                     <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-2">Earnings Paid</p>
-                     <p className="text-4xl font-black text-emerald-600 font-outfit mb-3 tracking-tighter">${job.cleanerPayout.toFixed(2)}</p>
-                     <Badge status="paid" />
-                   </div>
-                </div>
-              )}
-            </div>
-          </Card>
-        ))
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
       )}
+
+      {/* Coming Soon Modal */}
+      <ComingSoon
+        feature={comingSoonFeature}
+        isOpen={isComingSoonOpen}
+        onClose={hideComingSoon}
+      />
     </div>
   );
 };

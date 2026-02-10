@@ -2,35 +2,51 @@
 import React, { useState, useEffect } from 'react';
 import { Button, Input, Card } from './UI';
 import { storage } from '../utils/storage';
-import { User, UserType, ServiceOffer } from '../types';
-<<<<<<< HEAD
+import { User, ServiceOffer } from '../types';
+import { hashPassword, validatePassword, createSession } from '../utils/auth';
+import { CONFIG } from '../utils/config';
+import { NotificationHelpers } from '../utils/notifications';
+import { ExternalNotify, requestPushPermission as requestPush } from '../utils/externalNotifications';
+import { notifyAdmin } from '../utils/adminNotifications';
 import {
   ArrowLeft, UserPlus, Sparkles, Home, Briefcase, Mail, Phone,
   MapPin, Lock, Eye, EyeOff, CheckCircle, Clock, DollarSign,
   Star, Shield, Award, BadgeCheck, Building, User as UserIcon
 } from 'lucide-react';
-=======
-import { ArrowLeft, UserPlus, Sparkles } from 'lucide-react';
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
 
 interface RegisterProps {
   role: 'homeowner' | 'cleaner';
   onBack: () => void;
   onRegister: (user: User) => void;
+  onGoogleSignIn?: () => Promise<void>;
 }
 
-const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister }) => {
-<<<<<<< HEAD
+const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister, onGoogleSignIn }) => {
   const [step, setStep] = useState(1);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [googleError, setGoogleError] = useState('');
+
+  const handleGoogleSignUp = async () => {
+    if (!onGoogleSignIn) return;
+    setIsGoogleLoading(true);
+    setGoogleError('');
+    try {
+      await onGoogleSignIn();
+    } catch (err: any) {
+      if (err?.code !== 'auth/popup-closed-by-user') {
+        setGoogleError(err?.code === 'auth/popup-blocked'
+          ? 'Please allow popups for this site to sign up with Google.'
+          : 'Google sign-up failed. Please try again.'
+        );
+      }
+      setIsGoogleLoading(false);
+    }
+  };
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
-=======
-  const [formData, setFormData] = useState({
-    name: '',
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
     email: '',
     password: '',
     confirmPassword: '',
@@ -41,26 +57,17 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister }) => {
     province: 'Ontario',
     country: 'Canada',
     bio: '',
-<<<<<<< HEAD
-    hourlyRate: 35,
+    hourlyRate: CONFIG.pricing.defaultHourlyRate,
     experience: 1,
   });
 
   const [services, setServices] = useState<string[]>([]);
   const [serviceOptions, setServiceOptions] = useState<string[]>([]);
   const [error, setError] = useState('');
+  const [passwordErrors, setPasswordErrors] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const totalSteps = role === 'cleaner' ? 3 : 2;
-=======
-    hourlyRate: 25,
-    experience: 1,
-  });
-  
-  const [services, setServices] = useState<string[]>([]);
-  const [serviceOptions, setServiceOptions] = useState<string[]>([]);
-  const [error, setError] = useState('');
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
 
   useEffect(() => {
     const loadServices = async () => {
@@ -73,18 +80,14 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister }) => {
   }, []);
 
   const handleToggleService = (service: string) => {
-<<<<<<< HEAD
     setServices(prev =>
-=======
-    setServices(prev => 
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
       prev.includes(service) ? prev.filter(s => s !== service) : [...prev, service]
     );
   };
 
-<<<<<<< HEAD
   const validateStep = (currentStep: number): boolean => {
     setError('');
+    setPasswordErrors([]);
 
     if (currentStep === 1) {
       if (!formData.firstName.trim() || !formData.lastName.trim()) {
@@ -95,16 +98,21 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister }) => {
         setError('Please enter a valid email address');
         return false;
       }
-      if (formData.password.length < 6) {
-        setError('Password must be at least 6 characters');
+
+      // Validate password strength
+      const validation = validatePassword(formData.password);
+      if (!validation.isValid) {
+        setPasswordErrors(validation.errors);
+        setError('Please fix the password issues below');
         return false;
       }
+
       if (formData.password !== formData.confirmPassword) {
         setError('Passwords do not match');
         return false;
       }
-      if (!formData.phone.trim()) {
-        setError('Please enter your phone number');
+      if (!formData.phone.trim() || formData.phone.replace(/\D/g, '').length < 10) {
+        setError('Please enter a valid phone number (at least 10 digits)');
         return false;
       }
     }
@@ -125,6 +133,10 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister }) => {
         setError('Please select at least one service you offer');
         return false;
       }
+      if (formData.hourlyRate < CONFIG.pricing.minimumHourlyRate || formData.hourlyRate > CONFIG.pricing.maximumHourlyRate) {
+        setError(`Hourly rate must be between $${CONFIG.pricing.minimumHourlyRate} and $${CONFIG.pricing.maximumHourlyRate}`);
+        return false;
+      }
     }
 
     return true;
@@ -138,6 +150,7 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister }) => {
 
   const prevStep = () => {
     setError('');
+    setPasswordErrors([]);
     setStep(step - 1);
   };
 
@@ -149,98 +162,84 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister }) => {
     setIsLoading(true);
     setError('');
 
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 800));
-=======
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-
-    if (formData.password.length < 6) {
-      setError('Password must be at least 6 characters');
-      return;
-    }
-
-    if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match');
-      return;
-    }
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
-
-    const cleanEmail = formData.email.trim().toLowerCase();
-    const keys = await storage.list('user:');
-    for (const key of keys) {
-      const existing = await storage.get(key);
-      if (existing && existing.email.toLowerCase() === cleanEmail) {
-<<<<<<< HEAD
-        setError('This email is already registered. Please use a different email or login.');
-        setIsLoading(false);
-=======
-        setError('Email already registered');
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
-        return;
+    try {
+      const cleanEmail = formData.email.trim().toLowerCase();
+      const keys = await storage.list('user:');
+      for (const key of keys) {
+        const existing = await storage.get(key);
+        if (existing && existing.email.toLowerCase() === cleanEmail) {
+          setError('This email is already registered. Please use a different email or login.');
+          setIsLoading(false);
+          return;
+        }
       }
+
+      // Hash the password before storing
+      const hashedPassword = await hashPassword(formData.password);
+
+      const fullName = `${formData.firstName.trim()} ${formData.lastName.trim()}`;
+      const fullAddress = `${formData.streetAddress}${formData.apartment ? ', ' + formData.apartment : ''}, ${formData.city}, ${formData.province}, ${formData.country}`;
+
+      const newUser: User = {
+        id: `user_${Date.now()}`,
+        type: role,
+        name: fullName,
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        email: cleanEmail,
+        password: hashedPassword, // Store hashed password
+        phone: formData.phone,
+        address: fullAddress,
+        streetAddress: formData.streetAddress,
+        apartment: formData.apartment,
+        city: formData.city,
+        province: formData.province,
+        country: formData.country,
+        bio: role === 'cleaner' ? formData.bio : undefined,
+        hourlyRate: role === 'cleaner' ? formData.hourlyRate : undefined,
+        experience: role === 'cleaner' ? formData.experience : undefined,
+        services: role === 'cleaner' ? services : undefined,
+        rating: role === 'cleaner' ? 5.0 : undefined,
+        reviewCount: role === 'cleaner' ? 0 : undefined,
+        totalEarnings: role === 'cleaner' ? 0 : undefined,
+        isAvailable: role === 'cleaner' ? true : undefined,
+        emailVerified: false,
+        phoneVerified: false,
+        addressVerified: false,
+        authProvider: 'email',
+        profileComplete: true,
+        createdAt: new Date().toISOString()
+      };
+
+      await storage.set(`user:${newUser.id}`, newUser);
+
+      // Create session
+      const session = createSession(newUser.id);
+      await storage.set('session', session);
+      await storage.set('currentUser', newUser);
+
+      // Send verification reminder notification (in-app)
+      await NotificationHelpers.verificationReminder(newUser.id);
+
+      // Request push permission + send welcome email & push notification
+      requestPush();
+      ExternalNotify.verificationReminder(cleanEmail, `${formData.firstName.trim()} ${formData.lastName.trim()}`);
+
+      // Notify admin about new registration
+      notifyAdmin('new_registration', {
+        userName: fullName,
+        userEmail: cleanEmail,
+        userType: role,
+      });
+
+      onRegister(newUser);
+    } catch (err) {
+      setError('An error occurred. Please try again.');
+      setIsLoading(false);
     }
-
-<<<<<<< HEAD
-    const fullName = `${formData.firstName.trim()} ${formData.lastName.trim()}`;
-=======
-    // Split name for granular fields
-    const nameParts = formData.name.trim().split(' ');
-    const firstName = nameParts[0];
-    const lastName = nameParts.slice(1).join(' ');
-
-    // Construct full address for compatibility
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
-    const fullAddress = `${formData.streetAddress}${formData.apartment ? ', ' + formData.apartment : ''}, ${formData.city}, ${formData.province}, ${formData.country}`;
-
-    const newUser: User = {
-      id: `user_${Date.now()}`,
-      type: role,
-<<<<<<< HEAD
-      name: fullName,
-      firstName: formData.firstName.trim(),
-      lastName: formData.lastName.trim(),
-      email: cleanEmail,
-      password: formData.password,
-      phone: formData.phone,
-      address: fullAddress,
-      streetAddress: formData.streetAddress,
-      apartment: formData.apartment,
-      city: formData.city,
-      province: formData.province,
-      country: formData.country,
-      bio: role === 'cleaner' ? formData.bio : undefined,
-      hourlyRate: role === 'cleaner' ? formData.hourlyRate : undefined,
-      experience: role === 'cleaner' ? formData.experience : undefined,
-=======
-      ...formData,
-      firstName,
-      lastName,
-      address: fullAddress,
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
-      services: role === 'cleaner' ? services : undefined,
-      rating: role === 'cleaner' ? 5.0 : undefined,
-      reviewCount: role === 'cleaner' ? 0 : undefined,
-      totalEarnings: role === 'cleaner' ? 0 : undefined,
-      isAvailable: role === 'cleaner' ? true : undefined,
-      createdAt: new Date().toISOString()
-    };
-
-<<<<<<< HEAD
-=======
-    // Remove the temporary confirmPassword from the saved object
-    delete (newUser as any).confirmPassword;
-
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
-    await storage.set(`user:${newUser.id}`, newUser);
-    await storage.set('currentUser', newUser);
-    onRegister(newUser);
   };
 
-<<<<<<< HEAD
   const isHomeowner = role === 'homeowner';
-  const primaryColor = isHomeowner ? 'purple' : 'pink';
   const gradientFrom = isHomeowner ? 'from-purple-600' : 'from-pink-600';
   const gradientTo = isHomeowner ? 'to-pink-600' : 'to-orange-500';
 
@@ -307,7 +306,7 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister }) => {
                 <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
                   <DollarSign className="w-5 h-5" />
                 </div>
-                <span>Keep 80% of every job — industry-leading payout</span>
+                <span>Keep {CONFIG.pricing.cleanerPayoutRate * 100}% of every job — industry-leading payout</span>
               </div>
               <div className="flex items-center gap-3 text-white/90">
                 <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
@@ -390,6 +389,46 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister }) => {
               {/* Step 1: Account Information */}
               {step === 1 && (
                 <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-300">
+                  {/* Google Sign-Up Option */}
+                  {onGoogleSignIn && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleGoogleSignUp}
+                        disabled={isGoogleLoading || isLoading}
+                        className="w-full py-3 px-4 rounded-xl border-2 border-gray-200 bg-white hover:bg-gray-50 transition-colors flex items-center justify-center gap-3 font-semibold text-gray-700 disabled:opacity-50"
+                      >
+                        {isGoogleLoading ? (
+                          <span className="flex items-center gap-2">
+                            <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            Connecting...
+                          </span>
+                        ) : (
+                          <>
+                            <svg className="w-5 h-5" viewBox="0 0 24 24">
+                              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+                              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                            </svg>
+                            Sign up with Google
+                          </>
+                        )}
+                      </button>
+                      {googleError && (
+                        <p className="text-sm text-red-500 text-center">{googleError}</p>
+                      )}
+                      <div className="flex items-center gap-4">
+                        <div className="flex-1 h-px bg-gray-200"></div>
+                        <span className="text-sm text-gray-400">OR continue with email</span>
+                        <div className="flex-1 h-px bg-gray-200"></div>
+                      </div>
+                    </>
+                  )}
+
                   <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
                     <UserIcon className="w-4 h-4" />
                     Account Information
@@ -429,7 +468,7 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister }) => {
                       <Input
                         label="Password"
                         type={showPassword ? 'text' : 'password'}
-                        placeholder="Min. 6 characters"
+                        placeholder="Min. 8 characters"
                         value={formData.password}
                         onChange={(e: any) => setFormData({ ...formData, password: e.target.value })}
                         required
@@ -460,6 +499,21 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister }) => {
                       </button>
                     </div>
                   </div>
+
+                  {/* Password Requirements */}
+                  {passwordErrors.length > 0 && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                      <p className="text-xs font-semibold text-amber-800 mb-2">Password requirements:</p>
+                      <ul className="text-xs text-amber-700 space-y-1">
+                        {passwordErrors.map((err, i) => (
+                          <li key={i} className="flex items-center gap-2">
+                            <span className="w-1 h-1 bg-amber-500 rounded-full"></span>
+                            {err}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
                   <div className="relative">
                     <Input
@@ -560,7 +614,9 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister }) => {
                       placeholder="Tell homeowners about your cleaning experience, specialties, and what makes you great at what you do..."
                       value={formData.bio}
                       onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
+                      maxLength={CONFIG.validation.bio.maxLength}
                     />
+                    <p className="text-xs text-gray-400 mt-1 text-right">{formData.bio.length}/{CONFIG.validation.bio.maxLength}</p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
@@ -570,15 +626,15 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister }) => {
                         <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-semibold">$</span>
                         <input
                           type="number"
-                          min="20"
-                          max="75"
+                          min={CONFIG.pricing.minimumHourlyRate}
+                          max={CONFIG.pricing.maximumHourlyRate}
                           value={formData.hourlyRate}
                           onChange={(e) => setFormData({ ...formData, hourlyRate: Number(e.target.value) })}
                           className="w-full pl-8 pr-4 py-3 rounded-xl border-2 border-gray-100 focus:border-pink-500 focus:ring-2 focus:ring-pink-200 outline-none transition-all"
                         />
                         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">/hr</span>
                       </div>
-                      <p className="text-xs text-gray-500 mt-1 ml-1">Avg. rate: $30-45/hr</p>
+                      <p className="text-xs text-gray-500 mt-1 ml-1">Range: ${CONFIG.pricing.minimumHourlyRate}-${CONFIG.pricing.maximumHourlyRate}/hr</p>
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700 ml-1 block mb-1">Years of Experience</label>
@@ -628,17 +684,17 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister }) => {
                       <div>
                         <span className="text-gray-500">Per 3-hour job:</span>
                         <span className="block text-lg font-bold text-green-600">
-                          ${Math.round(formData.hourlyRate * 3 * 0.8)}
+                          ${Math.round(formData.hourlyRate * 3 * CONFIG.pricing.cleanerPayoutRate)}
                         </span>
                       </div>
                       <div>
                         <span className="text-gray-500">Weekly (20 hrs):</span>
                         <span className="block text-lg font-bold text-green-600">
-                          ${Math.round(formData.hourlyRate * 20 * 0.8)}
+                          ${Math.round(formData.hourlyRate * 20 * CONFIG.pricing.cleanerPayoutRate)}
                         </span>
                       </div>
                     </div>
-                    <p className="text-xs text-gray-500 mt-2">Based on 80% payout after platform fee</p>
+                    <p className="text-xs text-gray-500 mt-2">Based on {CONFIG.pricing.cleanerPayoutRate * 100}% payout after platform fee</p>
                   </div>
                 </div>
               )}
@@ -712,94 +768,6 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister }) => {
           </Card>
         </div>
       </div>
-=======
-  return (
-    <div className="min-h-screen py-12 px-6 flex justify-center">
-      <Card className="w-full max-w-2xl">
-        <button onClick={onBack} className="mb-6 flex items-center gap-2 text-gray-500 hover:text-purple-600 transition-colors">
-          <ArrowLeft className="w-4 h-4" />
-          <span className="text-sm font-semibold">Back</span>
-        </button>
-
-        <div className="text-center mb-8">
-          <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mx-auto mb-4">
-            {role === 'homeowner' ? <UserPlus className="w-6 h-6 text-purple-600" /> : <Sparkles className="w-6 h-6 text-pink-600" />}
-          </div>
-          <h2 className="text-3xl font-bold">Register as {role === 'homeowner' ? 'Homeowner' : 'Holla Cleaner'}</h2>
-          <p className="text-gray-500">Join the HollaClean community in Ontario</p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="space-y-4">
-            <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Account Information</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input label="Full Name" value={formData.name} onChange={(e: any) => setFormData({...formData, name: e.target.value})} required />
-              <Input label="Email Address" type="email" value={formData.email} onChange={(e: any) => setFormData({...formData, email: e.target.value})} required />
-              <Input label="Password" type="password" value={formData.password} onChange={(e: any) => setFormData({...formData, password: e.target.value})} required />
-              <Input label="Confirm Password" type="password" value={formData.confirmPassword} onChange={(e: any) => setFormData({...formData, confirmPassword: e.target.value})} required />
-              <div className="md:col-span-2">
-                <Input label="Phone Number" value={formData.phone} onChange={(e: any) => setFormData({...formData, phone: e.target.value})} placeholder="e.g., 4165550199" required />
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Address Details</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="md:col-span-2">
-                <Input label="Street Address" value={formData.streetAddress} onChange={(e: any) => setFormData({...formData, streetAddress: e.target.value})} placeholder="123 King St W" required />
-              </div>
-              <Input label="Apartment/Unit" value={formData.apartment} onChange={(e: any) => setFormData({...formData, apartment: e.target.value})} placeholder="Apt 4B (Optional)" />
-              <Input label="City" value={formData.city} onChange={(e: any) => setFormData({...formData, city: e.target.value})} required />
-              <Input label="Province" value={formData.province} onChange={(e: any) => setFormData({...formData, province: e.target.value})} required />
-              <Input label="Country" value={formData.country} onChange={(e: any) => setFormData({...formData, country: e.target.value})} required />
-            </div>
-          </div>
-
-          {role === 'cleaner' && (
-            <div className="space-y-6 animate-in fade-in slide-in-from-top-4 border-t border-gray-100 pt-6">
-              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Professional Profile</h3>
-              <div className="flex flex-col gap-1">
-                <label className="text-sm font-medium text-gray-700 ml-1">About Me</label>
-                <textarea 
-                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 focus:border-pink-500 outline-none h-32"
-                  placeholder="Describe your cleaning experience..."
-                  value={formData.bio}
-                  onChange={(e: any) => setFormData({...formData, bio: e.target.value})}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input label="Hourly Rate ($/hr)" type="number" min="15" value={formData.hourlyRate} onChange={(e: any) => setFormData({...formData, hourlyRate: Number(e.target.value)})} required />
-                <Input label="Experience (Years)" type="number" min="0" value={formData.experience} onChange={(e: any) => setFormData({...formData, experience: Number(e.target.value)})} required />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700 ml-1 block mb-3">Services Offered</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {serviceOptions.map(service => (
-                    <button
-                      key={service}
-                      type="button"
-                      onClick={() => handleToggleService(service)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium border-2 transition-all ${services.includes(service) ? 'bg-pink-100 border-pink-500 text-pink-700' : 'bg-white border-gray-100 text-gray-600'}`}
-                    >
-                      {service}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {error && <p className="text-sm text-red-500 font-bold text-center">{error}</p>}
-
-          <Button type="submit" className="w-full">
-            Create Account
-          </Button>
-        </form>
-      </Card>
->>>>>>> d06443da4cbdb3f847eedb509039380cf77654ed
     </div>
   );
 };
