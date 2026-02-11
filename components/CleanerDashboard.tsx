@@ -56,7 +56,7 @@ const CleanerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) => 
             completed++;
             const compDate = new Date(req.completedAt!);
             if (compDate.getMonth() === now.getMonth() && compDate.getFullYear() === now.getFullYear()) {
-              mon += req.cleanerPayout;
+              mon += (Number(req.cleanerPayout) || 0);
             }
             if (compDate >= weekAgo) {
               weeklyHours += req.hours || 0;

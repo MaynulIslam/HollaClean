@@ -85,7 +85,7 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
       // Credit cleaner earnings (payment was already collected & held)
       const user = await storage.get(`user:${cleanerId}`);
       if (user) {
-        user.totalEarnings = (user.totalEarnings || 0) + req.cleanerPayout;
+        user.totalEarnings = (Number(user.totalEarnings) || 0) + (Number(req.cleanerPayout) || 0);
         await storage.set(`user:${cleanerId}`, user);
       }
 
@@ -149,7 +149,7 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
     return statusMap[status] || statusMap.accepted;
   };
 
-  const totalEarnings = jobs.reduce((sum, job) => sum + (job.cleanerPayout || 0), 0);
+  const totalEarnings = jobs.reduce((sum, job) => sum + (Number(job.cleanerPayout) || 0), 0);
 
   return (
     <div className="space-y-4 animate-in fade-in duration-300">
@@ -276,7 +276,7 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
                         {type === 'history' ? 'Earned' : 'You\'ll Earn'}
                       </p>
                       <p className={`text-2xl font-bold ${type === 'history' ? 'text-green-600' : 'text-pink-600'}`}>
-                        ${job.cleanerPayout.toFixed(2)}
+                        ${(Number(job.cleanerPayout) || 0).toFixed(2)}
                       </p>
                     </div>
                     <button
@@ -421,16 +421,16 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
                     <p className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-3">Earnings Breakdown</p>
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-gray-600">Service ({job.hours}h @ ${job.hourlyRate}/hr)</span>
-                        <span className="font-semibold">${job.totalAmount.toFixed(2)}</span>
+                        <span className="text-gray-600">Service ({job.hours}h @ ${Number(job.hourlyRate) || 35}/hr)</span>
+                        <span className="font-semibold">${(Number(job.totalAmount) || 0).toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between text-gray-500">
                         <span>Platform fee (20%)</span>
-                        <span>-${job.platformCommission.toFixed(2)}</span>
+                        <span>-${(Number(job.platformCommission) || 0).toFixed(2)}</span>
                       </div>
                       <div className="pt-2 border-t border-gray-100 flex justify-between font-bold">
                         <span>Your Payout</span>
-                        <span className="text-green-600">${job.cleanerPayout.toFixed(2)}</span>
+                        <span className="text-green-600">${(Number(job.cleanerPayout) || 0).toFixed(2)}</span>
                       </div>
                     </div>
                   </div>

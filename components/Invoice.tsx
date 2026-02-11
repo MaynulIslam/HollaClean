@@ -165,8 +165,8 @@ const Invoice: React.FC<InvoiceProps> = ({ request, isOpen, onClose, invoiceType
                 </div>
               </div>
               <div className="flex justify-between text-sm pt-2 border-t border-gray-100">
-                <span className="text-gray-600">{request.hours}h @ ${request.hourlyRate}/hr</span>
-                <span className="font-semibold text-gray-900">${request.totalAmount.toFixed(2)}</span>
+                <span className="text-gray-600">{request.hours}h @ ${Number(request.hourlyRate) || 35}/hr</span>
+                <span className="font-semibold text-gray-900">${(Number(request.totalAmount) || 0).toFixed(2)}</span>
               </div>
             </div>
 
@@ -196,8 +196,8 @@ const Invoice: React.FC<InvoiceProps> = ({ request, isOpen, onClose, invoiceType
                     </div>
                   </div>
                   <div className="col-span-2 text-center text-gray-700">{request.hours}h</div>
-                  <div className="col-span-2 text-center text-gray-700">${request.hourlyRate}/hr</div>
-                  <div className="col-span-2 text-right font-semibold text-gray-900">${request.totalAmount.toFixed(2)}</div>
+                  <div className="col-span-2 text-center text-gray-700">${Number(request.hourlyRate) || 35}/hr</div>
+                  <div className="col-span-2 text-right font-semibold text-gray-900">${(Number(request.totalAmount) || 0).toFixed(2)}</div>
                 </div>
               </div>
             </div>
@@ -209,21 +209,21 @@ const Invoice: React.FC<InvoiceProps> = ({ request, isOpen, onClose, invoiceType
               <div className="w-full max-w-xs space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Subtotal</span>
-                  <span className="font-semibold">${request.totalAmount.toFixed(2)}</span>
+                  <span className="font-semibold">${(Number(request.totalAmount) || 0).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Platform Fee (included)</span>
-                  <span className="text-gray-500">${request.platformCommission.toFixed(2)}</span>
+                  <span className="text-gray-500">${(Number(request.platformCommission) || 0).toFixed(2)}</span>
                 </div>
                 {config.showCleanerPayout && (
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Cleaner Payout</span>
-                    <span className="text-green-600">${request.cleanerPayout.toFixed(2)}</span>
+                    <span className="text-green-600">${(Number(request.cleanerPayout) || 0).toFixed(2)}</span>
                   </div>
                 )}
                 <div className="flex justify-between pt-3 border-t border-gray-200">
                   <span className="font-bold text-gray-900">{config.totalLabel}</span>
-                  <span className="text-xl font-bold text-purple-600">${request.totalAmount.toFixed(2)}</span>
+                  <span className="text-xl font-bold text-purple-600">${(Number(request.totalAmount) || 0).toFixed(2)}</span>
                 </div>
               </div>
             </div>

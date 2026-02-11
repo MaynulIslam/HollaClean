@@ -76,6 +76,12 @@ export interface CleaningRequest {
   paidAt?: string;
   cleanerId?: string;
 
+  // Property details (optional, helps with estimation)
+  squareFootage?: number;
+  floorType?: string;
+  numberOfRooms?: number;
+  hasPets?: boolean;
+
   // Reminder tracking
   remindersSent?: number;
   lastReminderAt?: string;

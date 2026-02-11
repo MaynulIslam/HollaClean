@@ -60,9 +60,9 @@ const PaymentCheckout: React.FC<PaymentCheckoutProps> = ({
       console.error('Payment init error:', err);
       // In demo mode, create a fake breakdown
       setBreakdown({
-        total: request.totalAmount,
-        platformFee: request.platformCommission,
-        cleanerPayout: request.cleanerPayout
+        total: Number(request.totalAmount) || 0,
+        platformFee: Number(request.platformCommission) || 0,
+        cleanerPayout: Number(request.cleanerPayout) || 0
       });
     }
   };
@@ -153,7 +153,7 @@ const PaymentCheckout: React.FC<PaymentCheckoutProps> = ({
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Rate</span>
-                    <span className="font-medium">${request.hourlyRate}/hr</span>
+                    <span className="font-medium">${Number(request.hourlyRate) || 35}/hr</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Date</span>
@@ -171,7 +171,7 @@ const PaymentCheckout: React.FC<PaymentCheckoutProps> = ({
                 <div className="border-t border-purple-200 mt-3 pt-3 flex justify-between">
                   <span className="font-semibold text-gray-900">Total</span>
                   <span className="text-xl font-bold text-purple-600">
-                    ${request.totalAmount.toFixed(2)} CAD
+                    ${(Number(request.totalAmount) || 0).toFixed(2)} CAD
                   </span>
                 </div>
               </div>
@@ -183,15 +183,15 @@ const PaymentCheckout: React.FC<PaymentCheckoutProps> = ({
                   <div className="space-y-1 text-sm">
                     <div className="flex justify-between text-gray-600">
                       <span>Service Amount</span>
-                      <span>${breakdown.total.toFixed(2)}</span>
+                      <span>${(Number(breakdown.total) || 0).toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-gray-500 text-xs">
                       <span>Cleaner Payout (80%)</span>
-                      <span>${breakdown.cleanerPayout.toFixed(2)}</span>
+                      <span>${(Number(breakdown.cleanerPayout) || 0).toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-gray-500 text-xs">
                       <span>Platform Fee (20%)</span>
-                      <span>${breakdown.platformFee.toFixed(2)}</span>
+                      <span>${(Number(breakdown.platformFee) || 0).toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
@@ -299,7 +299,7 @@ const PaymentCheckout: React.FC<PaymentCheckoutProps> = ({
               <div className="flex justify-between items-center py-4 border-t border-gray-100 mt-6">
                 <span className="text-gray-600">Total to pay</span>
                 <span className="text-2xl font-bold text-purple-600">
-                  ${request.totalAmount.toFixed(2)}
+                  ${(Number(request.totalAmount) || 0).toFixed(2)}
                 </span>
               </div>
 
@@ -314,7 +314,7 @@ const PaymentCheckout: React.FC<PaymentCheckoutProps> = ({
                 }`}
               >
                 <Lock className="w-5 h-5" />
-                Pay ${request.totalAmount.toFixed(2)} CAD
+                Pay ${(Number(request.totalAmount) || 0).toFixed(2)} CAD
               </button>
 
               <button
@@ -355,7 +355,7 @@ const PaymentCheckout: React.FC<PaymentCheckoutProps> = ({
               </p>
               <div className="bg-green-50 rounded-xl p-4 text-sm">
                 <p className="text-green-800">
-                  <span className="font-semibold">Amount held:</span> ${request.totalAmount.toFixed(2)} CAD
+                  <span className="font-semibold">Amount held:</span> ${(Number(request.totalAmount) || 0).toFixed(2)} CAD
                 </p>
                 <p className="text-green-700 text-xs mt-1">
                   Released to cleaner upon job completion.

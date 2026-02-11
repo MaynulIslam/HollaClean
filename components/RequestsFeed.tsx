@@ -7,11 +7,67 @@ import VerificationBadge from './VerificationBadge';
 import { NotificationHelpers } from '../utils/notifications';
 import { ExternalNotify } from '../utils/externalNotifications';
 import { notifyAdmin } from '../utils/adminNotifications';
+import { CONFIG } from '../utils/config';
 import {
   Clock, MapPin, Sparkles, User as UserIcon, CheckCircle, Calendar,
   DollarSign, ChevronDown, ChevronUp, Navigation, Image as ImageIcon,
-  Zap, Eye, ArrowRight, AlertCircle
+  Zap, Eye, ArrowRight, AlertCircle, Ruler, Layers, Grid3X3, PawPrint,
+  Wrench, Package, CheckSquare
 } from 'lucide-react';
+
+// Tools & supplies recommendations by service type
+const serviceToolsMap: Record<string, { essential: string[]; recommended: string[]; floorSpecific?: Record<string, string[]> }> = {
+  'Regular Cleaning': {
+    essential: ['All-purpose cleaner', 'Microfiber cloths', 'Vacuum cleaner', 'Mop & bucket', 'Trash bags', 'Rubber gloves'],
+    recommended: ['Glass cleaner', 'Duster (extendable)', 'Scrub brush', 'Disinfectant spray'],
+    floorSpecific: {
+      'Hardwood': ['Wood floor cleaner (Bona/Murphy)', 'Flat microfiber mop (no excess water)'],
+      'Tile': ['Tile & grout cleaner', 'Grout brush'],
+      'Carpet': ['Carpet spot remover', 'Carpet rake'],
+      'Laminate': ['Laminate-safe cleaner (no wax)', 'Dry microfiber mop'],
+      'Vinyl': ['Vinyl floor cleaner', 'Soft-bristle brush'],
+      'Marble': ['pH-neutral stone cleaner', 'Soft cloth (avoid acids)'],
+      'Mixed': ['Multi-surface cleaner', 'Both dry & wet mop heads'],
+    },
+  },
+  'Deep Cleaning': {
+    essential: ['All-purpose cleaner', 'Degreaser', 'Microfiber cloths (10+)', 'Vacuum with attachments', 'Mop & bucket', 'Scrub brushes (various sizes)', 'Rubber gloves', 'Step stool/ladder'],
+    recommended: ['Toothbrush (for grout/crevices)', 'Magic eraser sponges', 'Baseboard brush', 'Ceiling fan duster', 'Oven cleaner', 'Limescale remover'],
+    floorSpecific: {
+      'Hardwood': ['Wood floor cleaner', 'Wood polish/conditioner'],
+      'Tile': ['Heavy-duty grout cleaner', 'Grout brush', 'Steam cleaner (optional)'],
+      'Carpet': ['Carpet shampoo', 'Upholstery cleaner', 'Stain remover'],
+      'Marble': ['pH-neutral stone cleaner', 'Stone sealer (optional)'],
+    },
+  },
+  'Move In/Out': {
+    essential: ['All-purpose cleaner', 'Degreaser', 'Glass cleaner', 'Microfiber cloths (15+)', 'Vacuum with attachments', 'Mop & bucket', 'Scrub brushes', 'Rubber gloves', 'Step stool/ladder', 'Trash bags (heavy duty)'],
+    recommended: ['Oven cleaner', 'Fridge cleaner', 'Cabinet liner paper', 'Magic eraser sponges', 'Razor blade scraper', 'Wall scuff remover'],
+  },
+  'Window Cleaning': {
+    essential: ['Window squeegee', 'Window cleaning solution', 'Lint-free cloths/chamois', 'Extension pole', 'Bucket', 'Scrubber sleeve'],
+    recommended: ['Razor blade scraper', 'Track cleaning brush', 'Microfiber towels', 'Ladder (for exterior)'],
+  },
+  'Carpet Cleaning': {
+    essential: ['Carpet extractor/shampooer', 'Carpet cleaning solution', 'Spot treatment spray', 'Scrub brush', 'Wet/dry vacuum', 'Deodorizer'],
+    recommended: ['Carpet rake', 'Pet stain enzyme cleaner', 'Protective shoe covers', 'Fans for drying'],
+  },
+  'Laundry': {
+    essential: ['Laundry detergent', 'Fabric softener', 'Stain remover', 'Sorting bags', 'Hangers', 'Iron & ironing board'],
+    recommended: ['Steamer', 'Delicates wash bags', 'Lint roller', 'Dryer sheets'],
+  },
+  'Post-Construction': {
+    essential: ['Heavy-duty vacuum (HEPA)', 'Industrial cleaner', 'Scrub brushes', 'Razor blade scraper', 'Mop & bucket', 'Dust masks/respirator', 'Heavy-duty gloves', 'Trash bags (contractor grade)'],
+    recommended: ['Shop vac', 'Pressure washer (for exterior)', 'Tack cloth for fine dust', 'Damp cloth for surfaces', 'Ladder'],
+  },
+};
+
+function getToolsForJob(serviceType: string, floorType?: string, hasPets?: boolean) {
+  const tools = serviceToolsMap[serviceType] || serviceToolsMap['Regular Cleaning'];
+  const floorTools = floorType && tools.floorSpecific?.[floorType] ? tools.floorSpecific[floorType] : [];
+  const petTools = hasPets ? ['Pet hair remover/lint roller', 'Enzyme-based pet odor neutralizer'] : [];
+  return { essential: tools.essential, recommended: tools.recommended, floorTools, petTools };
+}
 
 interface Props {
   cleaner: User;
@@ -69,8 +125,10 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
       return;
     }
 
-    const totalAmount = cleaner.hourlyRate! * req.hours;
-    const commission = totalAmount * 0.20;
+    const rate = Number(cleaner.hourlyRate) || CONFIG.pricing.defaultHourlyRate;
+    const safeHours = Number(req.hours) || 3;
+    const totalAmount = rate * safeHours;
+    const commission = totalAmount * CONFIG.pricing.platformCommissionRate;
     const payout = totalAmount - commission;
 
     const updated: CleaningRequest = {
@@ -79,7 +137,7 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
       acceptedBy: cleaner.id,
       cleanerName: cleaner.name,
       cleanerPhone: cleaner.phone,
-      hourlyRate: cleaner.hourlyRate!,
+      hourlyRate: rate,
       acceptedAt: new Date().toISOString(),
       totalAmount,
       platformCommission: commission,
@@ -113,8 +171,10 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
   };
 
   const calculateEarnings = (hours: number) => {
-    const total = cleaner.hourlyRate! * hours;
-    return total * 0.8; // 80% after platform fee
+    const rate = Number(cleaner.hourlyRate) || CONFIG.pricing.defaultHourlyRate;
+    const safeHours = Number(hours) || 3;
+    const total = rate * safeHours;
+    return total * CONFIG.pricing.cleanerPayoutRate;
   };
 
   if (loading) {
@@ -280,6 +340,120 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
                     </a>
                   </div>
 
+                  {/* Property Details */}
+                  {(req.squareFootage || req.floorType || req.numberOfRooms || req.hasPets) && (
+                    <div className="mb-4 p-4 bg-white rounded-xl border border-gray-100">
+                      <p className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-3">Property Details</p>
+                      <div className="flex flex-wrap gap-2">
+                        {req.squareFootage && (
+                          <span className="inline-flex items-center gap-1.5 text-sm bg-gray-50 text-gray-700 px-3 py-1.5 rounded-lg border border-gray-100">
+                            <Ruler className="w-3.5 h-3.5 text-gray-400" />
+                            {(Number(req.squareFootage) || 0).toLocaleString()} sq ft
+                          </span>
+                        )}
+                        {req.floorType && (
+                          <span className="inline-flex items-center gap-1.5 text-sm bg-gray-50 text-gray-700 px-3 py-1.5 rounded-lg border border-gray-100">
+                            <Layers className="w-3.5 h-3.5 text-gray-400" />
+                            {req.floorType}
+                          </span>
+                        )}
+                        {req.numberOfRooms && (
+                          <span className="inline-flex items-center gap-1.5 text-sm bg-gray-50 text-gray-700 px-3 py-1.5 rounded-lg border border-gray-100">
+                            <Grid3X3 className="w-3.5 h-3.5 text-gray-400" />
+                            {req.numberOfRooms} {req.numberOfRooms === 1 ? 'room' : 'rooms'}
+                          </span>
+                        )}
+                        {req.hasPets && (
+                          <span className="inline-flex items-center gap-1.5 text-sm bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg border border-amber-200">
+                            <PawPrint className="w-3.5 h-3.5" />
+                            Has pets
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tools & Supplies Needed */}
+                  {(() => {
+                    const tools = getToolsForJob(req.serviceType, req.floorType, req.hasPets);
+                    return (
+                      <div className="mb-4 p-4 bg-white rounded-xl border border-gray-100">
+                        <p className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-3 flex items-center gap-2">
+                          <Wrench className="w-3.5 h-3.5 text-gray-400" />
+                          Tools & Supplies Needed
+                        </p>
+
+                        {/* Essential */}
+                        <div className="mb-3">
+                          <p className="text-xs font-semibold text-red-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                            <Package className="w-3 h-3" />
+                            Essential (Must Have)
+                          </p>
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
+                            {tools.essential.map((tool, idx) => (
+                              <div key={idx} className="flex items-center gap-1.5 text-sm text-gray-700">
+                                <CheckSquare className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                                {tool}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Recommended */}
+                        <div className="mb-3">
+                          <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                            <Package className="w-3 h-3" />
+                            Recommended
+                          </p>
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
+                            {tools.recommended.map((tool, idx) => (
+                              <div key={idx} className="flex items-center gap-1.5 text-sm text-gray-500">
+                                <CheckSquare className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                                {tool}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Floor-specific tools */}
+                        {tools.floorTools.length > 0 && (
+                          <div className="mb-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
+                            <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                              <Layers className="w-3 h-3" />
+                              For {req.floorType} Floors
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {tools.floorTools.map((tool, idx) => (
+                                <span key={idx} className="inline-flex items-center gap-1.5 text-sm text-amber-800 bg-amber-100 px-2.5 py-1 rounded-md">
+                                  <CheckSquare className="w-3 h-3 text-amber-600 flex-shrink-0" />
+                                  {tool}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Pet-specific tools */}
+                        {tools.petTools.length > 0 && (
+                          <div className="p-3 bg-purple-50 rounded-lg border border-purple-100">
+                            <p className="text-xs font-semibold text-purple-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                              <PawPrint className="w-3 h-3" />
+                              Pet-Related
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {tools.petTools.map((tool, idx) => (
+                                <span key={idx} className="inline-flex items-center gap-1.5 text-sm text-purple-800 bg-purple-100 px-2.5 py-1 rounded-md">
+                                  <CheckSquare className="w-3 h-3 text-purple-600 flex-shrink-0" />
+                                  {tool}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   {/* Special Instructions */}
                   {req.instructions && (
                     <div className="mb-4 p-4 bg-white rounded-xl border border-gray-100">
@@ -305,12 +479,12 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
                     <p className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-3">Earnings Breakdown</p>
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-gray-600">Your Rate ({req.hours}h @ ${cleaner.hourlyRate}/hr)</span>
-                        <span className="font-semibold">${(cleaner.hourlyRate! * req.hours).toFixed(2)}</span>
+                        <span className="text-gray-600">Your Rate ({req.hours}h @ ${Number(cleaner.hourlyRate) || CONFIG.pricing.defaultHourlyRate}/hr)</span>
+                        <span className="font-semibold">${((Number(cleaner.hourlyRate) || CONFIG.pricing.defaultHourlyRate) * (Number(req.hours) || 3)).toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between text-gray-500">
                         <span>Platform fee (20%)</span>
-                        <span>-${(cleaner.hourlyRate! * req.hours * 0.2).toFixed(2)}</span>
+                        <span>-${((Number(cleaner.hourlyRate) || CONFIG.pricing.defaultHourlyRate) * (Number(req.hours) || 3) * CONFIG.pricing.platformCommissionRate).toFixed(2)}</span>
                       </div>
                       <div className="pt-2 border-t border-pink-200 flex justify-between font-bold">
                         <span>Your Take-Home</span>

@@ -174,7 +174,7 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) =
                 <div className="min-w-0">
                   <p className="font-bold text-sm">Payment Required — Your cleaner is ready!</p>
                   <p className="text-white/80 text-xs truncate">
-                    {activeRequest.cleanerName} wants to start your {activeRequest.serviceType}. Pay ${activeRequest.totalAmount.toFixed(2)} to begin.
+                    {activeRequest.cleanerName} wants to start your {activeRequest.serviceType}. Pay ${(Number(activeRequest.totalAmount) || 0).toFixed(2)} to begin.
                   </p>
                 </div>
               </div>
@@ -291,12 +291,12 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) =
                       </div>
                       {activeRequest.status === 'awaiting_payment' && (
                         <p className="text-white/90 text-sm mt-2 font-semibold">
-                          Cleaner is ready! Pay ${activeRequest.totalAmount.toFixed(2)} to start cleaning.
+                          Cleaner is ready! Pay ${(Number(activeRequest.totalAmount) || 0).toFixed(2)} to start cleaning.
                         </p>
                       )}
                       {activeRequest.status === 'in_progress' && activeRequest.paymentStatus === 'held' && (
                         <p className="text-white/90 text-sm mt-2 font-semibold">
-                          ${activeRequest.totalAmount.toFixed(2)} held securely — released on completion.
+                          ${(Number(activeRequest.totalAmount) || 0).toFixed(2)} held securely — released on completion.
                         </p>
                       )}
                     </div>

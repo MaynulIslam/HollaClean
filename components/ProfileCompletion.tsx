@@ -585,14 +585,14 @@ const ProfileCompletion: React.FC<ProfileCompletionProps> = ({ googleUser, onCom
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <p className="text-green-600">Per 3-hour job</p>
-                      <p className="font-bold text-green-800">${(formData.hourlyRate * 3 * CONFIG.pricing.cleanerPayoutPercent / 100).toFixed(2)}</p>
+                      <p className="font-bold text-green-800">${((Number(formData.hourlyRate) || 0) * 3 * CONFIG.pricing.cleanerPayoutRate).toFixed(2)}</p>
                     </div>
                     <div>
                       <p className="text-green-600">Weekly (20 hours)</p>
-                      <p className="font-bold text-green-800">${(formData.hourlyRate * 20 * CONFIG.pricing.cleanerPayoutPercent / 100).toFixed(2)}</p>
+                      <p className="font-bold text-green-800">${((Number(formData.hourlyRate) || 0) * 20 * CONFIG.pricing.cleanerPayoutRate).toFixed(2)}</p>
                     </div>
                   </div>
-                  <p className="text-xs text-green-500 mt-2">Based on {CONFIG.pricing.cleanerPayoutPercent}% payout rate</p>
+                  <p className="text-xs text-green-500 mt-2">Based on {Math.round(CONFIG.pricing.cleanerPayoutRate * 100)}% payout rate</p>
                 </Card>
 
                 <div className="flex gap-3 pt-4">

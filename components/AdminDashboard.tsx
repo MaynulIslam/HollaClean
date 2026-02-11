@@ -66,7 +66,7 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
       const r = await storage.get(k);
       if (r) {
         allReqs.push(r);
-        if (r.status === 'completed') rev += r.platformCommission;
+        if (r.status === 'completed') rev += (Number(r.platformCommission) || 0);
       }
     }
 
@@ -204,9 +204,9 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
       req.date,
       req.time,
       `"${req.address.replace(/"/g, '""')}"`,
-      req.totalAmount.toFixed(2),
-      req.platformCommission.toFixed(2),
-      req.cleanerPayout.toFixed(2),
+      (Number(req.totalAmount) || 0).toFixed(2),
+      (Number(req.platformCommission) || 0).toFixed(2),
+      (Number(req.cleanerPayout) || 0).toFixed(2),
       req.createdAt
     ].join(","));
 
@@ -308,7 +308,7 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
                           <td className="px-6 py-4 font-bold text-sm text-gray-800">{req.homeownerName}</td>
                           <td className="px-6 py-4 text-sm text-gray-500">{req.cleanerName || '-'}</td>
                           <td className="px-6 py-4 text-sm text-gray-600">{req.serviceType}</td>
-                          <td className="px-6 py-4 text-right font-bold text-green-600 text-sm">${req.platformCommission.toFixed(2)}</td>
+                          <td className="px-6 py-4 text-right font-bold text-green-600 text-sm">${(Number(req.platformCommission) || 0).toFixed(2)}</td>
                         </tr>
                       ))
                     ) : (
@@ -677,8 +677,8 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
       }
       case 'payments':
         const completedRequests = requests.filter(r => r.status === 'completed');
-        const grossVolume = completedRequests.reduce((acc, r) => acc + r.totalAmount, 0);
-        const totalPayouts = completedRequests.reduce((acc, r) => acc + r.cleanerPayout, 0);
+        const grossVolume = completedRequests.reduce((acc, r) => acc + (Number(r.totalAmount) || 0), 0);
+        const totalPayouts = completedRequests.reduce((acc, r) => acc + (Number(r.cleanerPayout) || 0), 0);
 
         return (
           <div className="space-y-6">
@@ -725,9 +725,9 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
                       <tr key={req.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-8 py-6 font-mono text-[10px] text-gray-400 uppercase">{req.id.slice(-12)}</td>
                         <td className="px-8 py-6 text-xs text-gray-500 font-bold">{req.completedAt ? new Date(req.completedAt).toLocaleDateString() : 'N/A'}</td>
-                        <td className="px-8 py-6 font-bold text-gray-900">${req.totalAmount.toFixed(2)}</td>
-                        <td className="px-8 py-6 text-pink-600 font-bold">-${req.cleanerPayout.toFixed(2)}</td>
-                        <td className="px-8 py-6 text-emerald-600 font-black tracking-tight">+${req.platformCommission.toFixed(2)}</td>
+                        <td className="px-8 py-6 font-bold text-gray-900">${(Number(req.totalAmount) || 0).toFixed(2)}</td>
+                        <td className="px-8 py-6 text-pink-600 font-bold">-${(Number(req.cleanerPayout) || 0).toFixed(2)}</td>
+                        <td className="px-8 py-6 text-emerald-600 font-black tracking-tight">+${(Number(req.platformCommission) || 0).toFixed(2)}</td>
                         <td className="px-8 py-6 text-right"><Badge status="paid" /></td>
                       </tr>
                     )) : (

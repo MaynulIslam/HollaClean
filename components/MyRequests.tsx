@@ -260,7 +260,7 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                           </span>
                           <span className="flex items-center gap-1 font-semibold text-green-600">
                             <DollarSign className="w-4 h-4" />
-                            ${req.totalAmount}
+                            ${(Number(req.totalAmount) || 0).toFixed(2)}
                           </span>
                         </div>
                         <div className="flex items-center gap-1 mt-2 text-sm text-gray-500">
@@ -308,7 +308,7 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                       {req.paymentStatus === 'held' && (
                         <div className="mt-2 flex items-center gap-2 text-xs text-green-700 bg-green-50 px-3 py-2 rounded-lg border border-green-200">
                           <CheckCircle className="w-4 h-4 text-green-500" />
-                          <span><strong>${req.totalAmount.toFixed(2)}</strong> payment held — will be released when job is completed</span>
+                          <span><strong>${(Number(req.totalAmount) || 0).toFixed(2)}</strong> payment held — will be released when job is completed</span>
                         </div>
                       )}
                     </div>
@@ -332,7 +332,7 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                         className="mt-3 w-full py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
                       >
                         <Wallet className="w-5 h-5" />
-                        Pay ${req.totalAmount.toFixed(2)} CAD — Hold & Start
+                        Pay ${(Number(req.totalAmount) || 0).toFixed(2)} CAD — Hold & Start
                       </button>
                     </div>
                   )}
@@ -398,20 +398,20 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                       <p className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-3">Payment Details</p>
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
-                          <span className="text-gray-600">Service ({req.hours}h @ ${req.hourlyRate || 35}/hr)</span>
-                          <span className="font-semibold">${req.totalAmount}</span>
+                          <span className="text-gray-600">Service ({req.hours}h @ ${Number(req.hourlyRate) || 35}/hr)</span>
+                          <span className="font-semibold">${(Number(req.totalAmount) || 0).toFixed(2)}</span>
                         </div>
                         <div className="flex justify-between text-gray-500">
                           <span>Platform fee (included)</span>
-                          <span>${req.platformCommission}</span>
+                          <span>${(Number(req.platformCommission) || 0).toFixed(2)}</span>
                         </div>
                         <div className="flex justify-between text-gray-500">
                           <span>Cleaner receives</span>
-                          <span className="text-green-600">${req.cleanerPayout}</span>
+                          <span className="text-green-600">${(Number(req.cleanerPayout) || 0).toFixed(2)}</span>
                         </div>
                         <div className="pt-2 border-t border-gray-100 flex justify-between font-bold">
                           <span>Total</span>
-                          <span className="text-purple-600">${req.totalAmount}</span>
+                          <span className="text-purple-600">${(Number(req.totalAmount) || 0).toFixed(2)}</span>
                         </div>
                       </div>
                     </div>
