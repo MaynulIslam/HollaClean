@@ -222,10 +222,13 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
     // Simulate network delay
     await new Promise(resolve => setTimeout(resolve, 800));
 
+    const platformCfg = getPlatformConfig();
     const hourlyRateAvg = 35;
     const safeHours = Number(formData.hours) || 3;
-    const totalAmount = hourlyRateAvg * safeHours;
-    const commission = totalAmount * 0.20;
+    const subtotal = hourlyRateAvg * safeHours;
+    const taxAmount = Math.round(subtotal * platformCfg.pricing.taxRate * 100) / 100;
+    const totalAmount = Math.round((subtotal + taxAmount) * 100) / 100;
+    const commission = Math.round(subtotal * platformCfg.pricing.platformCommissionRate * 100) / 100;
 
     const sqftRaw = Number(formData.squareFootage);
     const sqft = formData.squareFootage && !isNaN(sqftRaw) && sqftRaw > 0 ? sqftRaw : undefined;
@@ -269,7 +272,9 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
       completedAt: null,
       totalAmount,
       platformCommission: commission,
-      cleanerPayout: totalAmount - commission,
+      cleanerPayout: Math.round((subtotal - commission) * 100) / 100,
+      taxAmount,
+      taxRate: platformCfg.pricing.taxRate,
       paymentStatus: 'pending',
       createdAt: new Date().toISOString()
     };
@@ -290,10 +295,13 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
 
   // Build preview request for payment step
   const previewRequest = useMemo((): CleaningRequest => {
+    const platformCfg = getPlatformConfig();
     const safeHours = Number(formData.hours) || 3;
     const hourlyRateAvg = 35;
-    const totalAmount = hourlyRateAvg * safeHours;
-    const commission = totalAmount * 0.20;
+    const subtotal = hourlyRateAvg * safeHours;
+    const taxAmount = Math.round(subtotal * platformCfg.pricing.taxRate * 100) / 100;
+    const totalAmount = Math.round((subtotal + taxAmount) * 100) / 100;
+    const commission = Math.round(subtotal * platformCfg.pricing.platformCommissionRate * 100) / 100;
     const bedrooms = Number(formData.numberOfBedrooms) || 0;
     const bathrooms = Number(formData.numberOfBathrooms) || 0;
     const kitchens = Number(formData.numberOfKitchens) || 0;
@@ -333,7 +341,9 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
       completedAt: null,
       totalAmount,
       platformCommission: commission,
-      cleanerPayout: totalAmount - commission,
+      cleanerPayout: Math.round((subtotal - commission) * 100) / 100,
+      taxAmount,
+      taxRate: platformCfg.pricing.taxRate,
       paymentStatus: 'pending',
       createdAt: new Date().toISOString()
     };
@@ -1010,30 +1020,47 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
             </Card>
 
             {/* Pricing Breakdown */}
-            <Card className="p-6 bg-gradient-to-br from-purple-50 to-pink-50 border-purple-100">
-              <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <DollarSign className="w-5 h-5 text-purple-600" />
-                Cost Estimate
-              </h3>
+            {(() => {
+              const platformCfg = getPlatformConfig();
+              const taxRate = platformCfg.pricing.taxRate;
+              const taxLabel = platformCfg.pricing.taxLabel;
+              const taxMin = Math.round(estMin * taxRate * 100) / 100;
+              const taxMax = Math.round(estMax * taxRate * 100) / 100;
+              const totalMin = Math.round((estMin + taxMin) * 100) / 100;
+              const totalMax = Math.round((estMax + taxMax) * 100) / 100;
+              return (
+                <Card className="p-6 bg-gradient-to-br from-purple-50 to-pink-50 border-purple-100">
+                  <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <DollarSign className="w-5 h-5 text-purple-600" />
+                    Cost Estimate
+                  </h3>
 
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-600">Estimated range ({formData.hours}h @ $25-45/hr)</span>
-                  <span className="font-bold text-gray-900">${estMin} - ${estMax}</span>
-                </div>
-                <div className="border-t border-purple-200 pt-3 mt-3">
-                  <div className="flex justify-between items-center">
-                    <span className="font-semibold text-gray-900">Estimated Total</span>
-                    <span className="text-xl font-bold text-purple-600">${estMin} - ${estMax}</span>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-600">Subtotal ({formData.hours}h @ $25-45/hr)</span>
+                      <span className="font-bold text-gray-900">${estMin} - ${estMax}</span>
+                    </div>
+                    {taxRate > 0 && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-600">{taxLabel} ({Math.round(taxRate * 100)}%)</span>
+                        <span className="font-medium text-gray-700">${taxMin.toFixed(2)} - ${taxMax.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="border-t border-purple-200 pt-3 mt-3">
+                      <div className="flex justify-between items-center">
+                        <span className="font-semibold text-gray-900">Estimated Total</span>
+                        <span className="text-xl font-bold text-purple-600">${totalMin.toFixed(2)} - ${totalMax.toFixed(2)}</span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
 
-              <div className="mt-4 flex items-start gap-2 text-sm text-gray-600 bg-white/50 p-3 rounded-xl">
-                <Info className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
-                <p>Final price depends on the cleaner's hourly rate. You'll see the exact amount before confirming.</p>
-              </div>
-            </Card>
+                  <div className="mt-4 flex items-start gap-2 text-sm text-gray-600 bg-white/50 p-3 rounded-xl">
+                    <Info className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
+                    <p>Final price depends on the cleaner's hourly rate. You'll see the exact amount before confirming.</p>
+                  </div>
+                </Card>
+              );
+            })()}
 
             {/* Trust Indicators */}
             <Card className="p-4 border-green-200 bg-green-50">

@@ -174,18 +174,64 @@ const AdminSettings: React.FC = () => {
             </div>
           </div>
 
-          {/* Live preview */}
-          <div className="p-4 bg-purple-50 rounded-xl border border-purple-100">
-            <p className="text-xs font-bold text-purple-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <Info className="w-3.5 h-3.5" /> Live Preview
-            </p>
-            <p className="text-sm text-gray-700">
-              For a <strong>{config.pricing.defaultHourlyRate}$/hr</strong> job at <strong>3 hours</strong>:
-              Total = <strong>${config.pricing.defaultHourlyRate * 3}</strong>,
-              Platform gets <strong>${(config.pricing.defaultHourlyRate * 3 * config.pricing.platformCommissionRate).toFixed(2)}</strong> ({Math.round(config.pricing.platformCommissionRate * 100)}%),
-              Cleaner gets <strong>${(config.pricing.defaultHourlyRate * 3 * (1 - config.pricing.platformCommissionRate)).toFixed(2)}</strong> ({Math.round((1 - config.pricing.platformCommissionRate) * 100)}%).
-            </p>
+          {/* Tax Settings */}
+          <div className="border-t border-gray-100 pt-6">
+            <h4 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2">
+              <Shield className="w-4 h-4 text-purple-600" />
+              Tax Settings
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-bold uppercase text-gray-400 tracking-wider block mb-2">Tax Rate (%)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={30}
+                  step={0.5}
+                  value={Math.round(config.pricing.taxRate * 1000) / 10}
+                  onChange={e => setConfig({ ...config, pricing: { ...config.pricing, taxRate: Number(e.target.value) / 100 } })}
+                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 focus:border-purple-500 outline-none transition-all"
+                />
+                <p className="text-xs text-gray-400 mt-1">Applied to the subtotal (e.g., 13 = 13% HST)</p>
+              </div>
+              <div>
+                <label className="text-xs font-bold uppercase text-gray-400 tracking-wider block mb-2">Tax Label</label>
+                <input
+                  type="text"
+                  value={config.pricing.taxLabel}
+                  onChange={e => setConfig({ ...config, pricing: { ...config.pricing, taxLabel: e.target.value } })}
+                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 focus:border-purple-500 outline-none transition-all"
+                  placeholder="HST"
+                />
+                <p className="text-xs text-gray-400 mt-1">Shown on invoices (e.g., HST, GST, GST+PST)</p>
+              </div>
+            </div>
           </div>
+
+          {/* Live preview */}
+          {(() => {
+            const subtotal = config.pricing.defaultHourlyRate * 3;
+            const tax = subtotal * config.pricing.taxRate;
+            const total = subtotal + tax;
+            const platformFee = subtotal * config.pricing.platformCommissionRate;
+            const cleanerPayout = subtotal * (1 - config.pricing.platformCommissionRate);
+            return (
+              <div className="p-4 bg-purple-50 rounded-xl border border-purple-100">
+                <p className="text-xs font-bold text-purple-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5" /> Live Preview
+                </p>
+                <p className="text-sm text-gray-700">
+                  For a <strong>${config.pricing.defaultHourlyRate}/hr</strong> job at <strong>3 hours</strong>:
+                  Subtotal = <strong>${subtotal.toFixed(2)}</strong>,
+                  {config.pricing.taxLabel} ({Math.round(config.pricing.taxRate * 100)}%) = <strong>${tax.toFixed(2)}</strong>,
+                  Total = <strong>${total.toFixed(2)}</strong>.
+                  <br />
+                  Platform gets <strong>${platformFee.toFixed(2)}</strong> ({Math.round(config.pricing.platformCommissionRate * 100)}%),
+                  Cleaner gets <strong>${cleanerPayout.toFixed(2)}</strong> ({Math.round((1 - config.pricing.platformCommissionRate) * 100)}%).
+                </p>
+              </div>
+            );
+          })()}
         </Card>
       )}
 

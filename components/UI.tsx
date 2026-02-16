@@ -46,8 +46,10 @@ export const Input: React.FC<{
 );
 
 export const Badge: React.FC<{
-  status: string;
-}> = ({ status }) => {
+  status?: string;
+  className?: string;
+  children?: React.ReactNode;
+}> = ({ status, className, children }) => {
   const styles: Record<string, string> = {
     open: "bg-green-100 text-green-700",
     accepted: "bg-blue-100 text-blue-700",
@@ -58,10 +60,10 @@ export const Badge: React.FC<{
     paid: "bg-emerald-100 text-emerald-700",
     pending: "bg-amber-100 text-amber-700",
   };
-  
+
   return (
-    <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${styles[status] || styles.open}`}>
-      {status.replace('_', ' ')}
+    <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${className || (status ? styles[status] || styles.open : styles.open)}`}>
+      {children || (status ? status.replace('_', ' ') : '')}
     </span>
   );
 };

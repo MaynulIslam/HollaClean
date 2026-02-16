@@ -18,6 +18,7 @@ import {
 import { getPlatformConfig } from '../utils/config';
 import { getCleanerPosition, checkProximity, formatDistance, Coordinates } from '../utils/geolocation';
 
+
 // Format room key like "bedroom_1" → "Bedroom 1"
 function formatRoomKey(key: string): string {
   const parts = key.split('_');
@@ -103,13 +104,20 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
         await storage.set(`user:${cleanerId}`, user);
       }
 
-      // Notify admin about job completion
+      // Mark payout as pending — admin will disburse manually from the admin panel
+      req.payoutStatus = 'pending';
+      req.payoutAmount = Number(req.cleanerPayout) || 0;
+
+      // Notify admin about job completion (payout awaiting disbursement)
       notifyAdmin('job_completed', {
         serviceType: req.serviceType,
         amount: req.cleanerPayout,
         cleanerName: req.cleanerName || undefined,
         homeownerName: req.homeownerName,
         requestId: req.id,
+        payoutAmount: req.payoutAmount,
+        taxAmount: req.taxAmount,
+        taxRate: req.taxRate,
       });
 
       // Notify both parties — payment released (in-app)

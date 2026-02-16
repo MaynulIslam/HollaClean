@@ -10,6 +10,8 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
@@ -40,10 +42,36 @@ app.use((req, res, next) => {
 // Platform fee percentage (20%)
 const PLATFORM_FEE_PERCENT = parseInt(process.env.PLATFORM_FEE_PERCENT) || 20;
 
-// In-memory storage (replace with database in production)
+// In-memory storage for payments (transient, OK to lose on restart)
 const payments = new Map();
-const connectedAccounts = new Map();
 const platformEarnings = { total: 0, transactions: [] };
+
+// ─── Persistent storage for connected Stripe accounts ───
+const CONNECTED_ACCOUNTS_FILE = path.join(__dirname, 'connected-accounts.json');
+
+function loadConnectedAccounts() {
+  try {
+    if (fs.existsSync(CONNECTED_ACCOUNTS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(CONNECTED_ACCOUNTS_FILE, 'utf8'));
+      return new Map(Object.entries(data));
+    }
+  } catch (err) {
+    console.error('Failed to load connected accounts:', err.message);
+  }
+  return new Map();
+}
+
+function saveConnectedAccounts() {
+  try {
+    const obj = Object.fromEntries(connectedAccounts);
+    fs.writeFileSync(CONNECTED_ACCOUNTS_FILE, JSON.stringify(obj, null, 2));
+  } catch (err) {
+    console.error('Failed to save connected accounts:', err.message);
+  }
+}
+
+const connectedAccounts = loadConnectedAccounts();
+console.log(`Loaded ${connectedAccounts.size} connected account(s) from disk`);
 
 // ==================== ROOT & HEALTH CHECK ====================
 
@@ -164,6 +192,55 @@ app.get('/api/payments/:paymentIntentId', async (req, res) => {
   }
 });
 
+/**
+ * Transfer cleaner's payout after job completion
+ * Called when cleaner marks a job as complete
+ */
+app.post('/api/payments/transfer-to-cleaner', async (req, res) => {
+  try {
+    const { paymentIntentId, cleanerId, amount } = req.body;
+
+    if (!cleanerId || !amount) {
+      return res.status(400).json({ error: 'cleanerId and amount are required' });
+    }
+
+    const accountInfo = connectedAccounts.get(cleanerId);
+    if (!accountInfo?.accountId) {
+      return res.status(404).json({
+        error: 'Cleaner has no connected Stripe account',
+        code: 'NO_CONNECT_ACCOUNT'
+      });
+    }
+
+    // Amount is the cleaner's payout (80%), convert to cents
+    const amountInCents = Math.round(amount * 100);
+
+    const transfer = await stripe.transfers.create({
+      amount: amountInCents,
+      currency: 'cad',
+      destination: accountInfo.accountId,
+      metadata: {
+        paymentIntentId: paymentIntentId || 'manual',
+        cleanerId,
+        platform: 'hollaclean'
+      },
+      description: `HollaClean payout for job`
+    });
+
+    console.log(`Transfer created: ${transfer.id} → ${accountInfo.accountId} ($${amount})`);
+
+    res.json({
+      transferId: transfer.id,
+      amount: amount,
+      status: 'transferred'
+    });
+
+  } catch (error) {
+    console.error('Transfer error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==================== STRIPE CONNECT (Cleaner onboarding) ====================
 
 /**
@@ -208,7 +285,7 @@ app.post('/api/connect/create-account', async (req, res) => {
       }
     });
 
-    // Store the account mapping
+    // Store the account mapping (persisted to disk)
     connectedAccounts.set(cleanerId, {
       accountId: account.id,
       email,
@@ -216,6 +293,7 @@ app.post('/api/connect/create-account', async (req, res) => {
       status: 'pending',
       createdAt: new Date().toISOString()
     });
+    saveConnectedAccounts();
 
     res.json({
       accountId: account.id,
@@ -277,9 +355,10 @@ app.get('/api/connect/status/:cleanerId', async (req, res) => {
                        account.payouts_enabled &&
                        account.charges_enabled;
 
-    // Update local status
+    // Update local status (persisted to disk)
     accountInfo.status = isComplete ? 'active' : 'pending';
     connectedAccounts.set(cleanerId, accountInfo);
+    saveConnectedAccounts();
 
     res.json({
       connected: true,
@@ -471,6 +550,7 @@ app.post('/api/webhooks/stripe',
           if (info.accountId === account.id) {
             info.status = account.payouts_enabled ? 'active' : 'pending';
             connectedAccounts.set(cleanerId, info);
+            saveConnectedAccounts();
             break;
           }
         }

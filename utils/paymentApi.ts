@@ -145,6 +145,30 @@ export async function getCleanerBalance(cleanerId: string): Promise<{
   return response.json();
 }
 
+// ==================== TRANSFERS ====================
+
+/**
+ * Transfer cleaner's payout after job completion
+ */
+export async function transferToCleaner(params: {
+  paymentIntentId?: string;
+  cleanerId: string;
+  amount: number;
+}): Promise<{ transferId: string; amount: number; status: string }> {
+  const response = await fetch(`${API_BASE}/payments/transfer-to-cleaner`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params)
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to transfer to cleaner');
+  }
+
+  return response.json();
+}
+
 // ==================== ADMIN ====================
 
 export interface AdminEarnings {

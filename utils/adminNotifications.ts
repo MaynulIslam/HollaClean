@@ -20,6 +20,9 @@ interface EventDetails {
   cleanerName?: string;
   homeownerName?: string;
   requestId?: string;
+  payoutAmount?: number;
+  taxAmount?: number;
+  taxRate?: number;
 }
 
 const EVENT_CONFIG: Record<AdminEvent, { configKey: keyof Pick<Awaited<ReturnType<typeof getReminderConfig>>, 'adminNotifyOnRegistration' | 'adminNotifyOnPayment' | 'adminNotifyOnCompletion'>; subject: (d: EventDetails) => string; body: (d: EventDetails) => string }> = {
@@ -40,8 +43,11 @@ const EVENT_CONFIG: Record<AdminEvent, { configKey: keyof Pick<Awaited<ReturnTyp
   },
   job_completed: {
     configKey: 'adminNotifyOnCompletion',
-    subject: (d) => `Job Completed: ${d.serviceType}`,
-    body: (d) => `A cleaning job has been completed.\n\nService: ${d.serviceType}\nCleaner: ${d.cleanerName}\nHomeowner: ${d.homeownerName}\nAmount: $${d.amount?.toFixed(2)}\nRequest ID: ${d.requestId}\n\nPayment has been released to the cleaner.`,
+    subject: (d) => `Payout Pending: ${d.cleanerName} — $${(d.payoutAmount ?? d.amount ?? 0).toFixed(2)}`,
+    body: (d) => {
+      const taxLine = d.taxAmount && d.taxRate ? `Tax (${Math.round(d.taxRate * 100)}%): $${d.taxAmount.toFixed(2)}\n` : '';
+      return `A cleaning job has been completed and a payout is awaiting your approval.\n\nService: ${d.serviceType}\nCleaner: ${d.cleanerName}\nHomeowner: ${d.homeownerName}\nTotal Charged: $${(d.amount ?? 0).toFixed(2)}\n${taxLine}Cleaner Payout: $${(d.payoutAmount ?? 0).toFixed(2)}\nRequest ID: ${d.requestId}\n\nPlease log in to the admin panel to review and disburse this payout.\nAdmin Panel → Payouts tab`;
+    },
   },
 };
 

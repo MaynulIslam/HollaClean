@@ -2,6 +2,7 @@
 import React from 'react';
 import { CleaningRequest, InvoiceType } from '../types';
 import { X, Printer, CheckCircle, Calendar, Clock, Sparkles, FileText, Shield } from 'lucide-react';
+import { getPlatformConfig } from '../utils/config';
 
 interface InvoiceProps {
   request: CleaningRequest;
@@ -207,10 +208,23 @@ const Invoice: React.FC<InvoiceProps> = ({ request, isOpen, onClose, invoiceType
           <div className="border-t border-gray-200 pt-6">
             <div className="flex justify-end">
               <div className="w-full max-w-xs space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Subtotal</span>
-                  <span className="font-semibold">${(Number(request.totalAmount) || 0).toFixed(2)}</span>
-                </div>
+                {request.taxAmount != null && request.taxAmount > 0 ? (
+                  <>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Subtotal</span>
+                      <span className="font-semibold">${((Number(request.totalAmount) || 0) - (Number(request.taxAmount) || 0)).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">{getPlatformConfig().pricing.taxLabel} ({Math.round((request.taxRate || 0) * 100)}%)</span>
+                      <span className="font-semibold">${Number(request.taxAmount).toFixed(2)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Subtotal</span>
+                    <span className="font-semibold">${(Number(request.totalAmount) || 0).toFixed(2)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between pt-3 border-t border-gray-200">
                   <span className="font-bold text-gray-900">{config.totalLabel}</span>
                   <span className="text-xl font-bold text-purple-600">${(Number(request.totalAmount) || 0).toFixed(2)}</span>

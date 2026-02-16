@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CleaningRequest } from '../types';
 import { createPaymentIntent, PaymentBreakdown } from '../utils/paymentApi';
-import { CONFIG } from '../utils/config';
+import { CONFIG, getPlatformConfig } from '../utils/config';
 import {
   CreditCard, Lock, CheckCircle, AlertCircle, Loader2, X,
   DollarSign, Calendar, Clock, MapPin, User, Sparkles, Shield
@@ -304,7 +304,19 @@ const PaymentCheckout: React.FC<PaymentCheckoutProps> = ({
                     </div>
                   )}
                 </div>
-                <div className="border-t border-purple-200 mt-3 pt-3 flex justify-between">
+                {request.taxAmount != null && request.taxAmount > 0 && (
+                  <>
+                    <div className="border-t border-purple-200 mt-3 pt-3 flex justify-between">
+                      <span className="text-gray-600">Subtotal</span>
+                      <span className="font-medium">${((Number(request.totalAmount) || 0) - (Number(request.taxAmount) || 0)).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">{getPlatformConfig().pricing.taxLabel} ({Math.round((request.taxRate || 0) * 100)}%)</span>
+                      <span className="font-medium">${Number(request.taxAmount).toFixed(2)}</span>
+                    </div>
+                  </>
+                )}
+                <div className={`${request.taxAmount != null && request.taxAmount > 0 ? 'pt-2' : 'border-t border-purple-200 mt-3 pt-3'} flex justify-between`}>
                   <span className="font-semibold text-gray-900">Total</span>
                   <span className="text-xl font-bold text-purple-600">
                     ${(Number(request.totalAmount) || 0).toFixed(2)} CAD

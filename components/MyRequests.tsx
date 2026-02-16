@@ -12,7 +12,7 @@ import ReviewModal from './ReviewModal';
 import ComingSoon, { useComingSoon } from './ComingSoon';
 import Invoice from './Invoice';
 import VerificationBadge from './VerificationBadge';
-import { CONFIG } from '../utils/config';
+import { CONFIG, getPlatformConfig } from '../utils/config';
 
 // Format room key like "bedroom_1" → "Bedroom 1"
 function formatRoomKey(key: string): string {
@@ -341,10 +341,23 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                     <div className="mb-4 p-4 bg-white rounded-xl border border-gray-100">
                       <p className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-3">Payment Details</p>
                       <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Service ({req.hours}h @ ${Number(req.hourlyRate) || 35}/hr)</span>
-                          <span className="font-semibold">${(Number(req.totalAmount) || 0).toFixed(2)}</span>
-                        </div>
+                        {req.taxAmount != null && req.taxAmount > 0 ? (
+                          <>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Service ({req.hours}h @ ${Number(req.hourlyRate) || 35}/hr)</span>
+                              <span className="font-semibold">${((Number(req.totalAmount) || 0) - (Number(req.taxAmount) || 0)).toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">{getPlatformConfig().pricing.taxLabel} ({Math.round((req.taxRate || 0) * 100)}%)</span>
+                              <span className="font-semibold">${Number(req.taxAmount).toFixed(2)}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Service ({req.hours}h @ ${Number(req.hourlyRate) || 35}/hr)</span>
+                            <span className="font-semibold">${(Number(req.totalAmount) || 0).toFixed(2)}</span>
+                          </div>
+                        )}
                         <div className="pt-2 border-t border-gray-100 flex justify-between font-bold">
                           <span>Total Paid</span>
                           <span className="text-purple-600">${(Number(req.totalAmount) || 0).toFixed(2)}</span>

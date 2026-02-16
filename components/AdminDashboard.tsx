@@ -13,15 +13,19 @@ import {
   Shield, Users, Layers, TrendingUp, DollarSign,
   Briefcase, Plus, Trash2, Edit2, LogOut, Search, Download, X, Receipt,
   MapPin, Lock, CreditCard, Landmark, Info, Wallet, Bell, Save, ToggleLeft, ToggleRight, Mail, Clock,
-  Settings, ChevronDown, ChevronUp, Image as ImageIcon, AlertCircle, CheckCircle
+  Settings, ChevronDown, ChevronUp, Image as ImageIcon, AlertCircle, CheckCircle,
+  Banknote, Send, Loader2, ExternalLink
 } from 'lucide-react';
+import { transferToCleaner } from '../utils/paymentApi';
+import { getPlatformConfig } from '../utils/config';
+import { sendEmail } from '../utils/externalNotifications';
 
 interface Props {
   onBack: () => void;
   isAdmin?: boolean;
 }
 
-type AdminTab = 'requests' | 'services' | 'homeowners' | 'cleaners' | 'payments' | 'finance' | 'reminders' | 'settings';
+type AdminTab = 'requests' | 'services' | 'homeowners' | 'cleaners' | 'payments' | 'payouts' | 'finance' | 'reminders' | 'settings';
 
 // Format room key like "bedroom_1" → "Bedroom 1"
 function formatRoomKey(key: string): string {
@@ -950,6 +954,219 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
             </Card>
           </div>
         );
+
+      case 'payouts': {
+        const platformCfg = getPlatformConfig();
+        const pendingPayouts = requests.filter(r => r.status === 'completed' && r.paymentStatus === 'paid' && r.payoutStatus !== 'disbursed');
+        const disbursedPayouts = requests.filter(r => r.payoutStatus === 'disbursed');
+        const totalPending = pendingPayouts.reduce((acc, r) => acc + (Number(r.payoutAmount) || Number(r.cleanerPayout) || 0), 0);
+        const totalDisbursed = disbursedPayouts.reduce((acc, r) => acc + (Number(r.payoutAmount) || Number(r.cleanerPayout) || 0), 0);
+
+        const handleDisburse = async (req: CleaningRequest) => {
+          const payoutAmt = Number(req.payoutAmount) || Number(req.cleanerPayout) || 0;
+          if (!window.confirm(`Disburse $${payoutAmt.toFixed(2)} to ${req.cleanerName}?`)) return;
+
+          try {
+            // Find cleaner's Stripe account
+            const cleaner = await storage.get(`user:${req.acceptedBy}`);
+            if (cleaner?.stripeAccountId) {
+              await transferToCleaner({
+                paymentIntentId: req.paymentIntentId,
+                cleanerId: req.acceptedBy!,
+                amount: payoutAmt,
+              });
+            }
+
+            // Mark as disbursed
+            const updated = await storage.get(`request:${req.id}`);
+            updated.payoutStatus = 'disbursed';
+            updated.payoutDisbursedAt = new Date().toISOString();
+            updated.payoutAmount = payoutAmt;
+            await storage.set(`request:${req.id}`, updated);
+
+            loadAll();
+            alert(`Payout of $${payoutAmt.toFixed(2)} disbursed to ${req.cleanerName}`);
+          } catch (err: any) {
+            alert(`Disbursement failed: ${err.message}`);
+          }
+        };
+
+        const handleEditPayout = async (reqId: string) => {
+          const newAmount = prompt('Enter adjusted payout amount:');
+          if (newAmount === null) return;
+          const amt = parseFloat(newAmount);
+          if (isNaN(amt) || amt <= 0) { alert('Invalid amount'); return; }
+
+          const req = await storage.get(`request:${reqId}`);
+          req.payoutAmount = Math.round(amt * 100) / 100;
+          await storage.set(`request:${reqId}`, req);
+          loadAll();
+        };
+
+        const handleEmailCleaner = async (req: CleaningRequest) => {
+          if (!req.acceptedBy) return;
+          const cleaner = await storage.get(`user:${req.acceptedBy}`);
+          if (!cleaner?.email) { alert('Cleaner email not found'); return; }
+
+          const payoutAmt = Number(req.payoutAmount) || Number(req.cleanerPayout) || 0;
+          await sendEmail(
+            cleaner.email,
+            cleaner.name || 'Cleaner',
+            `[HollaClean] Your payout of $${payoutAmt.toFixed(2)} is being processed`,
+            `Hi ${cleaner.name},\n\nYour payout of $${payoutAmt.toFixed(2)} for the ${req.serviceType} job (${req.homeownerName}) is being processed.\n\nYou will receive it in your bank account within 2 business days.\n\nThank you for being a HollaClean professional!\n\n— HollaClean Team`
+          );
+          alert(`Email sent to ${cleaner.email}`);
+        };
+
+        return (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-3xl font-bold">Cleaner Payouts</h2>
+              <p className="text-gray-500 text-sm">Review, adjust, and disburse payouts to cleaners after job completion.</p>
+            </div>
+
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <Card className="bg-amber-50 border-amber-100 border p-6">
+                <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">Pending Payouts</p>
+                <p className="text-3xl font-black text-amber-900">${totalPending.toFixed(2)}</p>
+                <p className="text-xs text-amber-600 mt-1">{pendingPayouts.length} job{pendingPayouts.length !== 1 ? 's' : ''} awaiting disbursement</p>
+              </Card>
+              <Card className="bg-green-50 border-green-100 border p-6">
+                <p className="text-[10px] font-black text-green-600 uppercase tracking-widest mb-1">Total Disbursed</p>
+                <p className="text-3xl font-black text-green-900">${totalDisbursed.toFixed(2)}</p>
+                <p className="text-xs text-green-600 mt-1">{disbursedPayouts.length} payout{disbursedPayouts.length !== 1 ? 's' : ''} completed</p>
+              </Card>
+              <Card className="bg-purple-50 border-purple-100 border p-6">
+                <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-1">Tax Collected ({platformCfg.pricing.taxLabel})</p>
+                <p className="text-3xl font-black text-purple-900">
+                  ${requests.filter(r => r.status === 'completed').reduce((acc, r) => acc + (Number(r.taxAmount) || 0), 0).toFixed(2)}
+                </p>
+              </Card>
+            </div>
+
+            {/* Pending Payouts Table */}
+            <Card className="p-0 overflow-hidden shadow-2xl border-none">
+              <div className="bg-amber-50 px-6 py-4 border-b border-amber-100 flex items-center gap-3">
+                <Banknote className="w-5 h-5 text-amber-600" />
+                <h3 className="font-bold text-gray-900">Pending Payouts</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-white text-[10px] font-black uppercase tracking-widest text-gray-400 border-b border-gray-50">
+                    <tr>
+                      <th className="px-6 py-4">Cleaner</th>
+                      <th className="px-6 py-4">Service</th>
+                      <th className="px-6 py-4">Completed</th>
+                      <th className="px-6 py-4">Total Charged</th>
+                      <th className="px-6 py-4">{platformCfg.pricing.taxLabel}</th>
+                      <th className="px-6 py-4">Platform Fee</th>
+                      <th className="px-6 py-4">Payout</th>
+                      <th className="px-6 py-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50 bg-white">
+                    {pendingPayouts.length > 0 ? pendingPayouts.map(req => {
+                      const payoutAmt = Number(req.payoutAmount) || Number(req.cleanerPayout) || 0;
+                      const subtotal = req.taxAmount ? (Number(req.totalAmount) || 0) - (Number(req.taxAmount) || 0) : (Number(req.totalAmount) || 0);
+                      return (
+                        <tr key={req.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-6 py-4">
+                            <p className="font-bold text-gray-900 text-sm">{req.cleanerName}</p>
+                            <p className="text-[10px] text-gray-400">{req.homeownerName}</p>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-gray-700">{req.serviceType}</td>
+                          <td className="px-6 py-4 text-xs text-gray-500">{req.completedAt ? new Date(req.completedAt).toLocaleDateString() : 'N/A'}</td>
+                          <td className="px-6 py-4 font-bold text-gray-900">${(Number(req.totalAmount) || 0).toFixed(2)}</td>
+                          <td className="px-6 py-4 text-sm text-gray-600">${(Number(req.taxAmount) || 0).toFixed(2)}</td>
+                          <td className="px-6 py-4 text-sm text-purple-600 font-semibold">${(Number(req.platformCommission) || 0).toFixed(2)}</td>
+                          <td className="px-6 py-4">
+                            <span className="font-black text-green-700 text-lg">${payoutAmt.toFixed(2)}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2 justify-end">
+                              <button
+                                onClick={() => handleEditPayout(req.id)}
+                                className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                                title="Edit payout amount"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleEmailCleaner(req)}
+                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                title="Email cleaner"
+                              >
+                                <Mail className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDisburse(req)}
+                                className="px-4 py-2 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 transition-colors flex items-center gap-1.5"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                                Disburse
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }) : (
+                      <tr>
+                        <td colSpan={8} className="px-8 py-16 text-center text-gray-400">
+                          <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-400" />
+                          All payouts have been disbursed!
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            {/* Disbursed History */}
+            {disbursedPayouts.length > 0 && (
+              <Card className="p-0 overflow-hidden border-none">
+                <div className="bg-green-50 px-6 py-4 border-b border-green-100 flex items-center gap-3">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  <h3 className="font-bold text-gray-900">Disbursement History</h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-white text-[10px] font-black uppercase tracking-widest text-gray-400 border-b border-gray-50">
+                      <tr>
+                        <th className="px-6 py-4">Cleaner</th>
+                        <th className="px-6 py-4">Service</th>
+                        <th className="px-6 py-4">Disbursed At</th>
+                        <th className="px-6 py-4">Amount</th>
+                        <th className="px-6 py-4 text-right">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50 bg-white">
+                      {disbursedPayouts.map(req => (
+                        <tr key={req.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-6 py-4">
+                            <p className="font-bold text-gray-900 text-sm">{req.cleanerName}</p>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-gray-700">{req.serviceType}</td>
+                          <td className="px-6 py-4 text-xs text-gray-500">
+                            {req.payoutDisbursedAt ? new Date(req.payoutDisbursedAt).toLocaleString() : 'N/A'}
+                          </td>
+                          <td className="px-6 py-4 font-bold text-green-700">${(Number(req.payoutAmount) || Number(req.cleanerPayout) || 0).toFixed(2)}</td>
+                          <td className="px-6 py-4 text-right">
+                            <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full">
+                              <CheckCircle className="w-3 h-3" /> Disbursed
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            )}
+          </div>
+        );
+      }
     }
   };
 
@@ -969,6 +1186,7 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
               { id: 'homeowners', label: 'Homeowners', icon: Users },
               { id: 'cleaners', label: 'Cleaners', icon: TrendingUp },
               { id: 'payments', label: 'Payments', icon: DollarSign },
+              { id: 'payouts', label: 'Payouts', icon: Banknote },
               { id: 'finance', label: 'Stripe Finance', icon: Wallet },
               { id: 'reminders', label: 'Reminders', icon: Bell },
               { id: 'settings', label: 'Settings', icon: Settings }
@@ -1008,6 +1226,7 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
               { id: 'homeowners', label: 'Owners' },
               { id: 'cleaners', label: 'Pros' },
               { id: 'payments', label: 'Payments' },
+              { id: 'payouts', label: 'Payouts' },
               { id: 'finance', label: 'Stripe' },
               { id: 'reminders', label: 'Reminders' },
               { id: 'settings', label: 'Settings' }

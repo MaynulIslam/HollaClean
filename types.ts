@@ -38,6 +38,10 @@ export interface User {
   reviewCount?: number;
   totalEarnings?: number;
   isAvailable?: boolean;
+
+  // Stripe Connect (cleaner payouts)
+  stripeAccountId?: string;
+  stripeConnectStatus?: 'not_started' | 'pending' | 'active';
 }
 
 export type RequestStatus = 'open' | 'accepted' | 'in_progress' | 'awaiting_payment' | 'completed' | 'cancelled';
@@ -75,6 +79,15 @@ export interface CleaningRequest {
   paymentIntentId?: string;
   paidAt?: string;
   cleanerId?: string;
+
+  // Tax
+  taxAmount?: number;
+  taxRate?: number;
+
+  // Admin payout tracking
+  payoutStatus?: 'pending' | 'disbursed';
+  payoutDisbursedAt?: string;
+  payoutAmount?: number;
 
   // Property details (optional, helps with estimation)
   squareFootage?: number;
