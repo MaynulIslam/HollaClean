@@ -24,6 +24,8 @@ export const CONFIG = {
     defaultHourlyRate: 35,
     currency: 'CAD',
     currencySymbol: '$',
+    taxRate: 0.13, // 13% HST (Ontario)
+    taxLabel: 'HST',
   },
 
   // Service types with pricing
@@ -143,6 +145,8 @@ export interface PlatformConfig {
     minimumHourlyRate: number;
     maximumHourlyRate: number;
     defaultHourlyRate: number;
+    taxRate: number;
+    taxLabel: string;
   };
   geolocation: {
     maxAcceptDistance: number;
