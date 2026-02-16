@@ -1,12 +1,14 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { User, CleaningRequest, ServiceOffer } from '../types';
 import { storage } from '../utils/storage';
+import { getPlatformConfig } from '../utils/config';
 import { Button, Card, Input } from './UI';
+import PaymentCheckout from './PaymentCheckout';
 import {
   ArrowLeft, Sparkles, MapPin, Clock, Calendar as CalendarIcon,
   Image as ImageIcon, X, DollarSign, Home, CheckCircle, Info,
-  Wrench, AlertCircle, ChevronRight, Shield, Star, Ruler, Layers, Grid3X3, PawPrint
+  Wrench, AlertCircle, ChevronRight, Shield, Star, Ruler, Layers, Grid3X3, PawPrint, CreditCard
 } from 'lucide-react';
 
 interface Props {
@@ -90,6 +92,24 @@ const serviceDetails: Record<string, {
   }
 };
 
+// Photo tips loaded from admin-editable config
+const roomPhotoTips: Record<string, string> = getPlatformConfig().photoTips;
+
+// Maps room key prefix to a friendly label
+function formatRoomKey(key: string): string {
+  const parts = key.split('_');
+  const num = parts.pop();
+  const type = parts.join('_');
+  const labels: Record<string, string> = {
+    bedroom: 'Bedroom',
+    bathroom: 'Bathroom',
+    kitchen: 'Kitchen',
+    livingRoom: 'Living Room',
+    other: 'Other Room',
+  };
+  return `${labels[type] || type} ${num}`;
+}
+
 const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
@@ -101,11 +121,16 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
     instructions: '',
     squareFootage: '' as string | number,
     floorType: '',
-    numberOfRooms: '' as string | number,
+    numberOfBedrooms: '' as string | number,
+    numberOfBathrooms: '' as string | number,
+    numberOfKitchens: '' as string | number,
+    numberOfLivingRooms: '' as string | number,
+    numberOfOtherRooms: '' as string | number,
     hasPets: false,
   });
 
   const [images, setImages] = useState<string[]>([]);
+  const [roomImages, setRoomImages] = useState<Record<string, string[]>>({});
   const [serviceOptions, setServiceOptions] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -141,6 +166,55 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
     setImages(prev => prev.filter((_, i) => i !== index));
   };
 
+  const handleRoomImageUpload = (roomType: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) {
+      Array.from(files).forEach((file: File) => {
+        if (file.size > 2 * 1024 * 1024) {
+          alert("Image is too large. Please select an image under 2MB.");
+          return;
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setRoomImages(prev => ({
+            ...prev,
+            [roomType]: [...(prev[roomType] || []), reader.result as string]
+          }));
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+    // Reset input so same file can be re-selected
+    e.target.value = '';
+  };
+
+  const removeRoomImage = (roomType: string, index: number) => {
+    setRoomImages(prev => ({
+      ...prev,
+      [roomType]: prev[roomType].filter((_, i) => i !== index)
+    }));
+  };
+
+  // Build individual room entries (e.g. Bedroom 1, Bedroom 2, Bathroom 1)
+  const individualRooms = useMemo(() => {
+    const rooms: { key: string; label: string; typeKey: string }[] = [];
+    const counts: { typeKey: string; label: string; count: number }[] = [
+      { typeKey: 'bedroom', label: 'Bedroom', count: Number(formData.numberOfBedrooms) || 0 },
+      { typeKey: 'bathroom', label: 'Bathroom', count: Number(formData.numberOfBathrooms) || 0 },
+      { typeKey: 'kitchen', label: 'Kitchen', count: Number(formData.numberOfKitchens) || 0 },
+      { typeKey: 'livingRoom', label: 'Living Room', count: Number(formData.numberOfLivingRooms) || 0 },
+      { typeKey: 'other', label: 'Other Room', count: Number(formData.numberOfOtherRooms) || 0 },
+    ];
+    for (const { typeKey, label, count } of counts) {
+      for (let i = 1; i <= count; i++) {
+        rooms.push({ key: `${typeKey}_${i}`, label: count > 1 ? `${label} ${i}` : label, typeKey });
+      }
+    }
+    return rooms;
+  }, [formData.numberOfBedrooms, formData.numberOfBathrooms, formData.numberOfKitchens, formData.numberOfLivingRooms, formData.numberOfOtherRooms]);
+
+  const allRoomImagesValid = individualRooms.length === 0 || individualRooms.every(r => (roomImages[r.key]?.length || 0) > 0);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -155,8 +229,13 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
 
     const sqftRaw = Number(formData.squareFootage);
     const sqft = formData.squareFootage && !isNaN(sqftRaw) && sqftRaw > 0 ? sqftRaw : undefined;
-    const roomsRaw = Number(formData.numberOfRooms);
-    const rooms = formData.numberOfRooms && !isNaN(roomsRaw) && roomsRaw > 0 ? roomsRaw : undefined;
+
+    const bedrooms = Number(formData.numberOfBedrooms) || 0;
+    const bathrooms = Number(formData.numberOfBathrooms) || 0;
+    const kitchens = Number(formData.numberOfKitchens) || 0;
+    const livingRooms = Number(formData.numberOfLivingRooms) || 0;
+    const otherRooms = Number(formData.numberOfOtherRooms) || 0;
+    const totalRooms = bedrooms + bathrooms + kitchens + livingRooms + otherRooms;
 
     const request: CleaningRequest = {
       id: `req_${Date.now()}`,
@@ -172,9 +251,15 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
       instructions: formData.instructions,
       ...(sqft ? { squareFootage: sqft } : {}),
       ...(formData.floorType ? { floorType: formData.floorType } : {}),
-      ...(rooms ? { numberOfRooms: rooms } : {}),
+      ...(totalRooms > 0 ? { numberOfRooms: totalRooms } : {}),
+      ...(bedrooms > 0 ? { numberOfBedrooms: bedrooms } : {}),
+      ...(bathrooms > 0 ? { numberOfBathrooms: bathrooms } : {}),
+      ...(kitchens > 0 ? { numberOfKitchens: kitchens } : {}),
+      ...(livingRooms > 0 ? { numberOfLivingRooms: livingRooms } : {}),
+      ...(otherRooms > 0 ? { numberOfOtherRooms: otherRooms } : {}),
       ...(formData.hasPets ? { hasPets: true } : {}),
-      images,
+      roomImages,
+      images: (Object.values(roomImages) as string[][]).flat(),
       status: 'open',
       acceptedBy: null,
       cleanerName: null,
@@ -203,7 +288,74 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
   const estMax = Math.round(hours * 45 * sqftMultiplier * petAddon);
   const currentServiceDetails = serviceDetails[formData.serviceType] || serviceDetails['Regular Cleaning'];
 
-  const nextStep = () => setStep(step + 1);
+  // Build preview request for payment step
+  const previewRequest = useMemo((): CleaningRequest => {
+    const safeHours = Number(formData.hours) || 3;
+    const hourlyRateAvg = 35;
+    const totalAmount = hourlyRateAvg * safeHours;
+    const commission = totalAmount * 0.20;
+    const bedrooms = Number(formData.numberOfBedrooms) || 0;
+    const bathrooms = Number(formData.numberOfBathrooms) || 0;
+    const kitchens = Number(formData.numberOfKitchens) || 0;
+    const livingRooms = Number(formData.numberOfLivingRooms) || 0;
+    const otherRooms = Number(formData.numberOfOtherRooms) || 0;
+    const sqftRaw = Number(formData.squareFootage);
+    const sqft = formData.squareFootage && !isNaN(sqftRaw) && sqftRaw > 0 ? sqftRaw : undefined;
+
+    return {
+      id: `req_${Date.now()}`,
+      homeownerId: user.id,
+      homeownerName: user.name,
+      homeownerPhone: user.phone,
+      homeownerEmail: user.email,
+      serviceType: formData.serviceType,
+      date: formData.date,
+      time: formData.time,
+      hours: safeHours,
+      address: formData.address,
+      instructions: formData.instructions,
+      ...(sqft ? { squareFootage: sqft } : {}),
+      ...(formData.floorType ? { floorType: formData.floorType } : {}),
+      ...(bedrooms > 0 ? { numberOfBedrooms: bedrooms } : {}),
+      ...(bathrooms > 0 ? { numberOfBathrooms: bathrooms } : {}),
+      ...(kitchens > 0 ? { numberOfKitchens: kitchens } : {}),
+      ...(livingRooms > 0 ? { numberOfLivingRooms: livingRooms } : {}),
+      ...(otherRooms > 0 ? { numberOfOtherRooms: otherRooms } : {}),
+      ...(formData.hasPets ? { hasPets: true } : {}),
+      roomImages,
+      images: (Object.values(roomImages) as string[][]).flat(),
+      status: 'open',
+      acceptedBy: null,
+      cleanerName: null,
+      cleanerPhone: null,
+      hourlyRate: null,
+      acceptedAt: null,
+      completedAt: null,
+      totalAmount,
+      platformCommission: commission,
+      cleanerPayout: totalAmount - commission,
+      paymentStatus: 'pending',
+      createdAt: new Date().toISOString()
+    };
+  }, [formData, roomImages, user]);
+
+  const handlePaymentSuccess = async (paymentIntentId: string) => {
+    // Save the request with payment completed
+    const request = { ...previewRequest, paymentStatus: 'paid' as const, paymentIntentId, paidAt: new Date().toISOString() };
+    await storage.set(`request:${request.id}`, request);
+    onSuccess();
+  };
+
+  const [imageError, setImageError] = useState('');
+  const nextStep = () => {
+    // Validate room images when leaving step 1
+    if (step === 1 && individualRooms.length > 0 && !allRoomImagesValid) {
+      setImageError('Please upload at least 1 photo for each room.');
+      return;
+    }
+    setImageError('');
+    setStep(step + 1);
+  };
   const prevStep = () => setStep(step - 1);
 
   return (
@@ -241,14 +393,14 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-6 mb-8">
         <div>
           <h2 className="text-2xl md:text-3xl font-bold font-outfit text-gray-900 mb-1">
-            {step === 1 && 'Choose Your Service'}
-            {step === 2 && 'Schedule & Location'}
-            {step === 3 && 'Review & Confirm'}
+            {step === 1 && 'Create Your Cleaning Request'}
+            {step === 2 && 'Review & Confirm'}
+            {step === 3 && 'Secure Payment'}
           </h2>
           <p className="text-gray-500">
-            {step === 1 && 'Select the type of cleaning service you need'}
-            {step === 2 && 'Tell us when and where you need cleaning'}
-            {step === 3 && 'Review your request details before posting'}
+            {step === 1 && 'Choose your service, schedule, and add details'}
+            {step === 2 && 'Review your request details before posting'}
+            {step === 3 && 'Pay the estimated amount to post your request'}
           </p>
         </div>
 
@@ -264,126 +416,106 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
       </div>
 
       <form onSubmit={handleSubmit}>
-        {/* Step 1: Service Selection */}
+        {/* Step 1: Service + Schedule + Details (merged) */}
         {step === 1 && (
           <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {serviceOptions.map(service => {
-                const details = serviceDetails[service] || serviceDetails['Regular Cleaning'];
-                const isSelected = formData.serviceType === service;
+            {/* Service Selection Grid — stable layout, no col-span changes */}
+            <div>
+              <h3 className="font-bold text-gray-900 flex items-center gap-2 mb-4">
+                <Sparkles className="w-5 h-5 text-purple-600" />
+                Choose Your Service
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {serviceOptions.map(service => {
+                  const details = serviceDetails[service] || serviceDetails['Regular Cleaning'];
+                  const isSelected = formData.serviceType === service;
 
-                return (
-                  <div
-                    key={service}
-                    onClick={() => setFormData({ ...formData, serviceType: service, hours: details.suggestedHours || formData.hours })}
-                    className={`cursor-pointer text-left rounded-2xl border-2 transition-all overflow-hidden ${
-                      isSelected
-                        ? 'border-purple-500 shadow-lg shadow-purple-100 md:col-span-2 lg:col-span-3'
-                        : 'border-gray-100 bg-white hover:border-purple-200 hover:shadow-md'
-                    }`}
-                  >
-                    {/* Compact Header (always visible) */}
-                    <div className={`p-5 ${isSelected ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white' : ''}`}>
-                      <div className="flex items-start justify-between mb-3">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                          isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'
+                  return (
+                    <div
+                      key={service}
+                      onClick={() => setFormData({ ...formData, serviceType: service, hours: details.suggestedHours || formData.hours })}
+                      className={`cursor-pointer text-left rounded-xl border-2 p-4 transition-all ${
+                        isSelected
+                          ? 'border-purple-500 bg-purple-50 shadow-md shadow-purple-100'
+                          : 'border-gray-100 bg-white hover:border-purple-200 hover:shadow-sm'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                          isSelected ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-400'
                         }`}>
-                          <Sparkles className="w-5 h-5" />
+                          <Sparkles className="w-4 h-4" />
                         </div>
-                        <div className="flex items-center gap-2">
-                          {isSelected && <CheckCircle className="w-6 h-6 text-white" />}
-                          {!isSelected && (
-                            <span className="text-xs text-green-600 font-semibold flex items-center gap-1">
-                              <DollarSign className="w-3 h-3" />
-                              {details.priceRange}
-                            </span>
-                          )}
-                        </div>
+                        {isSelected && <CheckCircle className="w-5 h-5 text-purple-600" />}
                       </div>
-                      <h3 className={`font-bold mb-1 ${isSelected ? 'text-white text-lg font-outfit' : 'text-gray-900'}`}>{service}</h3>
-                      <p className={`text-sm mb-3 ${isSelected ? 'text-white/80' : 'text-gray-500'}`}>{details.description}</p>
-                      <div className={`flex items-center gap-3 text-xs ${isSelected ? 'text-white/70' : 'text-gray-500'}`}>
-                        <span className="flex items-center gap-1">
+                      <h4 className={`font-bold text-sm mb-1 ${isSelected ? 'text-purple-900' : 'text-gray-900'}`}>{service}</h4>
+                      <p className="text-xs text-gray-500 line-clamp-2">{details.description}</p>
+                      <div className="flex items-center gap-2 mt-2 text-[10px] text-gray-400">
+                        <span className="flex items-center gap-0.5">
                           <Clock className="w-3 h-3" />
                           {details.duration}
                         </span>
-                        {isSelected && (
-                          <span className="flex items-center gap-1">
-                            <DollarSign className="w-3 h-3" />
-                            {details.priceRange}
-                          </span>
-                        )}
+                        <span className="flex items-center gap-0.5">
+                          <DollarSign className="w-3 h-3" />
+                          {details.priceRange}
+                        </span>
                       </div>
                     </div>
+                  );
+                })}
+              </div>
+            </div>
 
-                    {/* Expanded Details (only for selected) */}
-                    {isSelected && (
-                      <div className="bg-white p-6 space-y-5 animate-in fade-in duration-200">
-                        {/* What's Included */}
-                        <div>
-                          <h5 className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-3 flex items-center gap-2">
-                            <CheckCircle className="w-3.5 h-3.5 text-green-500" />
-                            What's Included
-                          </h5>
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2">
-                            {details.includes.map((item, idx) => (
-                              <div key={idx} className="flex items-center gap-2 text-sm text-gray-700">
-                                <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
-                                {item}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Ideal For + Preparation Tip */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
-                            <h5 className="text-xs font-bold uppercase text-blue-400 tracking-wider mb-2 flex items-center gap-1.5">
-                              <Star className="w-3.5 h-3.5" />
-                              Ideal For
-                            </h5>
-                            <p className="text-sm text-blue-800">{details.idealFor}</p>
-                          </div>
-                          <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
-                            <h5 className="text-xs font-bold uppercase text-amber-500 tracking-wider mb-2 flex items-center gap-1.5">
-                              <AlertCircle className="w-3.5 h-3.5" />
-                              Preparation Tip
-                            </h5>
-                            <p className="text-sm text-amber-800">{details.prepTip}</p>
-                          </div>
-                        </div>
-
-                        {/* Duration + Suggested Hours */}
-                        <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500 pt-1">
-                          <span className="flex items-center gap-1.5">
-                            <Clock className="w-4 h-4 text-purple-500" />
-                            Typical: <span className="font-semibold text-gray-700">{details.duration}</span>
-                          </span>
-                          <span className="text-gray-300">|</span>
-                          <span className="flex items-center gap-1.5">
-                            <Info className="w-4 h-4 text-purple-500" />
-                            Suggested: <span className="font-semibold text-gray-700">{details.suggestedHours}h</span>
-                          </span>
-                        </div>
-                      </div>
-                    )}
+            {/* Selected Service Details — shown below grid */}
+            {formData.serviceType && currentServiceDetails && (
+              <Card className="p-5 border-purple-100 bg-gradient-to-br from-purple-50/50 to-pink-50/50 animate-in fade-in duration-200">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center">
+                    <Sparkles className="w-5 h-5" />
                   </div>
-                );
-              })}
-            </div>
+                  <div>
+                    <h4 className="font-bold text-gray-900">{formData.serviceType}</h4>
+                    <p className="text-xs text-gray-500">{currentServiceDetails.duration} • {currentServiceDetails.priceRange}</p>
+                  </div>
+                </div>
 
-            <div className="flex justify-end pt-4">
-              <Button type="button" onClick={nextStep} className="px-8">
-                Continue
-                <ChevronRight className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-        )}
+                {/* What's Included */}
+                <div className="mb-4">
+                  <h5 className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-2 flex items-center gap-1.5">
+                    <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                    What's Included
+                  </h5>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1.5">
+                    {currentServiceDetails.includes.map((item, idx) => (
+                      <div key={idx} className="flex items-center gap-1.5 text-sm text-gray-700">
+                        <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                        {item}
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
-        {/* Step 2: Schedule & Location */}
-        {step === 2 && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                {/* Ideal For + Preparation Tip */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
+                    <h5 className="text-[10px] font-bold uppercase text-blue-400 tracking-wider mb-1 flex items-center gap-1">
+                      <Star className="w-3 h-3" />
+                      Ideal For
+                    </h5>
+                    <p className="text-xs text-blue-800">{currentServiceDetails.idealFor}</p>
+                  </div>
+                  <div className="bg-amber-50 rounded-lg p-3 border border-amber-100">
+                    <h5 className="text-[10px] font-bold uppercase text-amber-500 tracking-wider mb-1 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      Preparation Tip
+                    </h5>
+                    <p className="text-xs text-amber-800">{currentServiceDetails.prepTip}</p>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {/* Schedule */}
             <Card className="p-6 space-y-6">
               <h3 className="font-bold text-gray-900 flex items-center gap-2">
                 <CalendarIcon className="w-5 h-5 text-purple-600" />
@@ -436,6 +568,7 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
               </div>
             </Card>
 
+            {/* Location */}
             <Card className="p-6 space-y-6">
               <h3 className="font-bold text-gray-900 flex items-center gap-2">
                 <MapPin className="w-5 h-5 text-purple-600" />
@@ -464,7 +597,7 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
               </div>
             </Card>
 
-            {/* Property Details (Optional) */}
+            {/* Property Details */}
             <Card className="p-6 space-y-5">
               <div>
                 <h3 className="font-bold text-gray-900 flex items-center gap-2">
@@ -474,7 +607,7 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
                 </h3>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <div>
                   <label className="text-sm font-medium text-gray-700 ml-1 flex items-center gap-1 mb-1">
                     <Ruler className="w-3.5 h-3.5 text-gray-400" />
@@ -514,24 +647,6 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
 
                 <div>
                   <label className="text-sm font-medium text-gray-700 ml-1 flex items-center gap-1 mb-1">
-                    <Grid3X3 className="w-3.5 h-3.5 text-gray-400" />
-                    Rooms
-                  </label>
-                  <select
-                    className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none transition-all"
-                    value={formData.numberOfRooms}
-                    onChange={(e) => setFormData({ ...formData, numberOfRooms: e.target.value })}
-                  >
-                    <option value="">Not specified</option>
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
-                      <option key={n} value={n}>{n} {n === 1 ? 'room' : 'rooms'}</option>
-                    ))}
-                    <option value="11">10+ rooms</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium text-gray-700 ml-1 flex items-center gap-1 mb-1">
                     <PawPrint className="w-3.5 h-3.5 text-gray-400" />
                     Pets
                   </label>
@@ -549,6 +664,81 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
                 </div>
               </div>
 
+              {/* Room Breakdown */}
+              <div className="mt-4">
+                <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1">
+                  <Grid3X3 className="w-4 h-4 text-purple-500" />
+                  Room Breakdown
+                </h4>
+                <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-gray-500 ml-1 mb-1 block">Bedrooms</label>
+                    <select
+                      className="w-full px-3 py-2.5 rounded-xl border-2 border-gray-100 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none transition-all text-sm"
+                      value={formData.numberOfBedrooms}
+                      onChange={(e) => setFormData({ ...formData, numberOfBedrooms: e.target.value })}
+                    >
+                      <option value="">0</option>
+                      {[1, 2, 3, 4, 5, 6].map(n => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500 ml-1 mb-1 block">Bathrooms</label>
+                    <select
+                      className="w-full px-3 py-2.5 rounded-xl border-2 border-gray-100 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none transition-all text-sm"
+                      value={formData.numberOfBathrooms}
+                      onChange={(e) => setFormData({ ...formData, numberOfBathrooms: e.target.value })}
+                    >
+                      <option value="">0</option>
+                      {[1, 2, 3, 4].map(n => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500 ml-1 mb-1 block">Kitchen</label>
+                    <select
+                      className="w-full px-3 py-2.5 rounded-xl border-2 border-gray-100 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none transition-all text-sm"
+                      value={formData.numberOfKitchens}
+                      onChange={(e) => setFormData({ ...formData, numberOfKitchens: e.target.value })}
+                    >
+                      <option value="">0</option>
+                      {[1, 2].map(n => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500 ml-1 mb-1 block">Living Room</label>
+                    <select
+                      className="w-full px-3 py-2.5 rounded-xl border-2 border-gray-100 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none transition-all text-sm"
+                      value={formData.numberOfLivingRooms}
+                      onChange={(e) => setFormData({ ...formData, numberOfLivingRooms: e.target.value })}
+                    >
+                      <option value="">0</option>
+                      {[1, 2, 3].map(n => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500 ml-1 mb-1 block">Other</label>
+                    <select
+                      className="w-full px-3 py-2.5 rounded-xl border-2 border-gray-100 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none transition-all text-sm"
+                      value={formData.numberOfOtherRooms}
+                      onChange={(e) => setFormData({ ...formData, numberOfOtherRooms: e.target.value })}
+                    >
+                      <option value="">0</option>
+                      {[1, 2, 3, 4, 5].map(n => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
               {sqftNum > 0 && (
                 <div className="flex items-center gap-2 text-xs text-purple-600 bg-purple-50 px-3 py-2 rounded-lg">
                   <Info className="w-3.5 h-3.5 flex-shrink-0" />
@@ -557,55 +747,117 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
               )}
             </Card>
 
+            {/* Room Photos */}
             <Card className="p-6 space-y-4">
               <h3 className="font-bold text-gray-900 flex items-center gap-2">
                 <ImageIcon className="w-5 h-5 text-purple-600" />
-                Photos (Optional)
+                Room Photos {individualRooms.length > 0 ? '(Required)' : '(Optional)'}
               </h3>
-              <p className="text-sm text-gray-500">Upload photos to help cleaners understand the space and prepare accordingly.</p>
+              <p className="text-sm text-gray-500">
+                {individualRooms.length > 0
+                  ? 'Upload at least 1 photo for each room to help cleaners prepare.'
+                  : 'Add room counts above to enable per-room photo uploads, or add general photos below.'}
+              </p>
 
-              <div className="flex flex-wrap gap-3">
-                {images.map((img, idx) => (
-                  <div key={idx} className="relative w-24 h-24 rounded-xl overflow-hidden group shadow-md">
-                    <img src={img} alt="Cleaning location" className="w-full h-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => removeImage(idx)}
-                      className="absolute top-1 right-1 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-                <label className="w-24 h-24 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-purple-400 hover:bg-purple-50 transition-all text-gray-400">
-                  <ImageIcon className="w-6 h-6 mb-1" />
-                  <span className="text-[10px] font-bold">Add Photo</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    className="hidden"
-                    onChange={handleImageUpload}
-                  />
-                </label>
-              </div>
+              {individualRooms.length > 0 ? (
+                <div className="space-y-4">
+                  {individualRooms.map(room => (
+                    <div key={room.key} className={`border rounded-xl p-4 ${(roomImages[room.key]?.length > 0) ? 'border-green-200 bg-green-50/30' : 'border-gray-100'}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <h4 className="text-sm font-semibold text-gray-700">{room.label}</h4>
+                        {!(roomImages[room.key]?.length > 0) && (
+                          <span className="text-xs text-red-500 font-semibold flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" />
+                            Photo required
+                          </span>
+                        )}
+                        {(roomImages[room.key]?.length > 0) && (
+                          <span className="text-xs text-green-600 font-semibold flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3" />
+                            {roomImages[room.key].length} photo{roomImages[room.key].length > 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </div>
+                      {/* Photo tip */}
+                      <p className="text-xs text-gray-400 mb-3 flex items-start gap-1.5">
+                        <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-purple-400" />
+                        {roomPhotoTips[room.typeKey] || roomPhotoTips.other}
+                      </p>
+                      <div className="flex flex-wrap gap-3">
+                        {(roomImages[room.key] || []).map((img, idx) => (
+                          <div key={idx} className="relative w-20 h-20 rounded-xl overflow-hidden group shadow-md">
+                            <img src={img} alt={room.label} className="w-full h-full object-cover" />
+                            <button
+                              type="button"
+                              onClick={() => removeRoomImage(room.key, idx)}
+                              className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                        <label className="w-20 h-20 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-purple-400 hover:bg-purple-50 transition-all text-gray-400">
+                          <ImageIcon className="w-5 h-5 mb-0.5" />
+                          <span className="text-[9px] font-bold">Add</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => handleRoomImageUpload(room.key, e)}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-3">
+                  {images.map((img, idx) => (
+                    <div key={idx} className="relative w-24 h-24 rounded-xl overflow-hidden group shadow-md">
+                      <img src={img} alt="Cleaning location" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => removeImage(idx)}
+                        className="absolute top-1 right-1 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                  <label className="w-24 h-24 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-purple-400 hover:bg-purple-50 transition-all text-gray-400">
+                    <ImageIcon className="w-6 h-6 mb-1" />
+                    <span className="text-[10px] font-bold">Add Photo</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={handleImageUpload}
+                    />
+                  </label>
+                </div>
+              )}
+
+              {imageError && (
+                <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                  {imageError}
+                </div>
+              )}
             </Card>
 
-            <div className="flex justify-between pt-4">
-              <Button type="button" onClick={prevStep} variant="secondary">
-                <ArrowLeft className="w-4 h-4" />
-                Back
-              </Button>
+            <div className="flex justify-end pt-4">
               <Button type="button" onClick={nextStep} className="px-8">
-                Continue
+                Continue to Review
                 <ChevronRight className="w-4 h-4" />
               </Button>
             </div>
           </div>
         )}
 
-        {/* Step 3: Review & Confirm */}
-        {step === 3 && (
+        {/* Step 2: Review & Confirm */}
+        {step === 2 && (
           <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
             <Card className="p-6">
               <h3 className="font-bold text-gray-900 mb-4">Request Summary</h3>
@@ -662,7 +914,7 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
                 </div>
 
                 {/* Property Details (if any provided) */}
-                {(formData.squareFootage || formData.floorType || formData.numberOfRooms || formData.hasPets) && (
+                {(formData.squareFootage || formData.floorType || formData.numberOfBedrooms || formData.numberOfBathrooms || formData.numberOfKitchens || formData.numberOfLivingRooms || formData.numberOfOtherRooms || formData.hasPets) && (
                   <div className="py-3 border-b border-gray-100">
                     <div className="flex items-center gap-3 mb-3">
                       <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center">
@@ -686,10 +938,29 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
                           {formData.floorType}
                         </span>
                       )}
-                      {formData.numberOfRooms && (
+                      {Number(formData.numberOfBedrooms) > 0 && (
                         <span className="inline-flex items-center gap-1.5 text-sm bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg">
-                          <Grid3X3 className="w-3.5 h-3.5 text-gray-400" />
-                          {formData.numberOfRooms} {Number(formData.numberOfRooms) === 1 ? 'room' : 'rooms'}
+                          {formData.numberOfBedrooms} Bed
+                        </span>
+                      )}
+                      {Number(formData.numberOfBathrooms) > 0 && (
+                        <span className="inline-flex items-center gap-1.5 text-sm bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg">
+                          {formData.numberOfBathrooms} Bath
+                        </span>
+                      )}
+                      {Number(formData.numberOfKitchens) > 0 && (
+                        <span className="inline-flex items-center gap-1.5 text-sm bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg">
+                          {formData.numberOfKitchens} Kitchen
+                        </span>
+                      )}
+                      {Number(formData.numberOfLivingRooms) > 0 && (
+                        <span className="inline-flex items-center gap-1.5 text-sm bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg">
+                          {formData.numberOfLivingRooms} Living
+                        </span>
+                      )}
+                      {Number(formData.numberOfOtherRooms) > 0 && (
+                        <span className="inline-flex items-center gap-1.5 text-sm bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg">
+                          {formData.numberOfOtherRooms} Other
                         </span>
                       )}
                       {formData.hasPets && (
@@ -709,7 +980,23 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
                   </div>
                 )}
 
-                {images.length > 0 && (
+                {Object.keys(roomImages).some(k => roomImages[k]?.length > 0) ? (
+                  <div className="py-3">
+                    <p className="text-sm text-gray-500 mb-2">Room Photos</p>
+                    {(Object.entries(roomImages) as [string, string[]][]).map(([roomKey, imgs]) => (
+                      imgs && imgs.length > 0 && (
+                        <div key={roomKey} className="mb-2">
+                          <p className="text-xs font-semibold text-gray-600 mb-1">{formatRoomKey(roomKey)}</p>
+                          <div className="flex gap-2">
+                            {imgs.map((img, idx) => (
+                              <img key={idx} src={img} alt="" className="w-16 h-16 rounded-lg object-cover" />
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    ))}
+                  </div>
+                ) : images.length > 0 ? (
                   <div className="py-3">
                     <p className="text-sm text-gray-500 mb-2">Photos Attached</p>
                     <div className="flex gap-2">
@@ -718,7 +1005,7 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
                       ))}
                     </div>
                   </div>
-                )}
+                ) : null}
               </div>
             </Card>
 
@@ -726,7 +1013,7 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
             <Card className="p-6 bg-gradient-to-br from-purple-50 to-pink-50 border-purple-100">
               <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
                 <DollarSign className="w-5 h-5 text-purple-600" />
-                Pricing Breakdown
+                Cost Estimate
               </h3>
 
               <div className="space-y-3">
@@ -734,13 +1021,9 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
                   <span className="text-gray-600">Estimated range ({formData.hours}h @ $25-45/hr)</span>
                   <span className="font-bold text-gray-900">${estMin} - ${estMax}</span>
                 </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-500">Platform fee (included)</span>
-                  <span className="text-gray-500">20%</span>
-                </div>
                 <div className="border-t border-purple-200 pt-3 mt-3">
                   <div className="flex justify-between items-center">
-                    <span className="font-semibold text-gray-900">You Pay (Final determined by cleaner)</span>
+                    <span className="font-semibold text-gray-900">Estimated Total</span>
                     <span className="text-xl font-bold text-purple-600">${estMin} - ${estMax}</span>
                   </div>
                 </div>
@@ -768,23 +1051,32 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
                 <ArrowLeft className="w-4 h-4" />
                 Back
               </Button>
-              <Button type="submit" className="px-8 py-4" disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <span className="flex items-center gap-2">
-                    <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    Posting Request...
-                  </span>
-                ) : (
-                  <>
-                    <CheckCircle className="w-5 h-5" />
-                    Post Cleaning Request
-                  </>
-                )}
+              <Button type="button" onClick={nextStep} className="px-8 py-4">
+                <CreditCard className="w-5 h-5" />
+                Continue to Payment
               </Button>
             </div>
+          </div>
+        )}
+
+        {/* Step 3: Payment */}
+        {step === 3 && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+            <Card className="p-6">
+              <h3 className="font-bold text-gray-900 mb-2">Secure Payment</h3>
+              <p className="text-sm text-gray-500">
+                Pay the estimated amount now to post your request. A cleaner will call you before arriving.
+              </p>
+            </Card>
+
+            <PaymentCheckout
+              request={previewRequest}
+              homeownerEmail={user.email}
+              isOpen={true}
+              mode="upfront"
+              onClose={prevStep}
+              onPaymentSuccess={handlePaymentSuccess}
+            />
           </div>
         )}
       </form>

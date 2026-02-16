@@ -39,8 +39,8 @@ function getInvoiceConfig(type: InvoiceType, request: CleaningRequest) {
         title: 'Payment Confirmation',
         totalLabel: 'Total Charged',
         showCleanerPayout: true,
-        footerNote: 'Your payment is held securely and will be released upon job completion.',
-        footerThank: 'Payment received — your cleaner can now begin!',
+        footerNote: 'Your payment has been processed securely. A cleaner will call you before arriving.',
+        footerThank: 'Payment received — thank you!',
       };
     case 'final':
     default:
@@ -211,16 +211,6 @@ const Invoice: React.FC<InvoiceProps> = ({ request, isOpen, onClose, invoiceType
                   <span className="text-gray-600">Subtotal</span>
                   <span className="font-semibold">${(Number(request.totalAmount) || 0).toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Platform Fee (included)</span>
-                  <span className="text-gray-500">${(Number(request.platformCommission) || 0).toFixed(2)}</span>
-                </div>
-                {config.showCleanerPayout && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Cleaner Payout</span>
-                    <span className="text-green-600">${(Number(request.cleanerPayout) || 0).toFixed(2)}</span>
-                  </div>
-                )}
                 <div className="flex justify-between pt-3 border-t border-gray-200">
                   <span className="font-bold text-gray-900">{config.totalLabel}</span>
                   <span className="text-xl font-bold text-purple-600">${(Number(request.totalAmount) || 0).toFixed(2)}</span>

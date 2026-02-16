@@ -6,19 +6,24 @@ import { Card, Badge, Button } from './UI';
 import {
   ArrowLeft, Clock, MapPin, MessageSquare, Phone, Calendar,
   DollarSign, User, Star, CheckCircle, XCircle, AlertCircle,
-  ChevronDown, ChevronUp, Sparkles, RefreshCw, Filter, Search, FileText,
-  CreditCard, Wallet
+  ChevronDown, ChevronUp, Sparkles, RefreshCw, Filter, Search, FileText
 } from 'lucide-react';
 import ReviewModal from './ReviewModal';
 import ComingSoon, { useComingSoon } from './ComingSoon';
 import Invoice from './Invoice';
-import PaymentCheckout from './PaymentCheckout';
 import VerificationBadge from './VerificationBadge';
 import { CONFIG } from '../utils/config';
-import { NotificationHelpers } from '../utils/notifications';
-import { ExternalNotify } from '../utils/externalNotifications';
-import { stopRemindersForRequest } from '../utils/reminderService';
-import { notifyAdmin } from '../utils/adminNotifications';
+
+// Format room key like "bedroom_1" → "Bedroom 1"
+function formatRoomKey(key: string): string {
+  const parts = key.split('_');
+  const num = parts.pop();
+  const type = parts.join('_');
+  const labels: Record<string, string> = { bedroom: 'Bedroom', bathroom: 'Bathroom', kitchen: 'Kitchen', livingRoom: 'Living Room', other: 'Other Room', bedrooms: 'Bedrooms', bathrooms: 'Bathrooms' };
+  const label = labels[type] || type;
+  if (!num || isNaN(Number(num))) return labels[key] || (key === 'livingRoom' ? 'Living Room' : key);
+  return `${label} ${num}`;
+}
 
 interface Props {
   homeownerId: string;
@@ -29,7 +34,6 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
   const [requests, setRequests] = useState<CleaningRequest[]>([]);
   const [selectedReq, setSelectedReq] = useState<CleaningRequest | null>(null);
   const [invoiceState, setInvoiceState] = useState<{ req: CleaningRequest; type: InvoiceType } | null>(null);
-  const [paymentReq, setPaymentReq] = useState<CleaningRequest | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'active' | 'completed' | 'cancelled'>('all');
   const [isLoading, setIsLoading] = useState(true);
@@ -85,49 +89,9 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
     }
   };
 
-  const handlePaymentSuccess = async (paymentIntentId: string) => {
-    if (!paymentReq) return;
-
-    const req = await storage.get(`request:${paymentReq.id}`);
-    if (req) {
-      // Payment collected → money is HELD → cleaning can begin
-      req.status = 'in_progress';
-      req.paymentStatus = 'held';
-      req.paymentIntentId = paymentIntentId;
-      req.paidAt = new Date().toISOString();
-      await storage.set(`request:${paymentReq.id}`, req);
-
-      // Stop payment reminders
-      await stopRemindersForRequest(paymentReq.id, 'paid');
-
-      // Notify admin about payment
-      notifyAdmin('payment_completed', {
-        serviceType: req.serviceType,
-        amount: req.totalAmount,
-        homeownerName: req.homeownerName,
-        cleanerName: req.cleanerName || undefined,
-        requestId: req.id,
-      });
-
-      // Notify cleaner that payment is held and they can start cleaning (in-app)
-      if (req.acceptedBy) {
-        await NotificationHelpers.paymentHeld(req.acceptedBy, req.serviceType);
-
-        // Send email + push to cleaner
-        const cleaner = await storage.get(`user:${req.acceptedBy}`);
-        if (cleaner) {
-          ExternalNotify.paymentHeld(cleaner.email, cleaner.name || 'Cleaner', req.serviceType);
-        }
-      }
-    }
-
-    setPaymentReq(null);
-    loadRequests();
-  };
-
   const filteredRequests = requests.filter(req => {
     if (filter === 'all') return true;
-    if (filter === 'active') return ['open', 'accepted', 'in_progress', 'awaiting_payment'].includes(req.status);
+    if (filter === 'active') return ['open', 'accepted', 'in_progress'].includes(req.status);
     if (filter === 'completed') return req.status === 'completed';
     if (filter === 'cancelled') return req.status === 'cancelled';
     return true;
@@ -138,7 +102,6 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
       open: { color: 'text-green-700', bg: 'bg-green-50 border-green-200', icon: <AlertCircle className="w-5 h-5" />, label: 'Awaiting Cleaner' },
       accepted: { color: 'text-blue-700', bg: 'bg-blue-50 border-blue-200', icon: <CheckCircle className="w-5 h-5" />, label: 'Cleaner Confirmed' },
       in_progress: { color: 'text-purple-700', bg: 'bg-purple-50 border-purple-200', icon: <RefreshCw className="w-5 h-5 animate-spin" />, label: 'Cleaning In Progress' },
-      awaiting_payment: { color: 'text-orange-700', bg: 'bg-orange-50 border-orange-200', icon: <CreditCard className="w-5 h-5" />, label: 'Payment Required' },
       completed: { color: 'text-gray-700', bg: 'bg-gray-50 border-gray-200', icon: <CheckCircle className="w-5 h-5" />, label: 'Completed & Paid' },
       cancelled: { color: 'text-red-700', bg: 'bg-red-50 border-red-200', icon: <XCircle className="w-5 h-5" />, label: 'Cancelled' }
     };
@@ -147,7 +110,7 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
 
   const stats = {
     total: requests.length,
-    active: requests.filter(r => ['open', 'accepted', 'in_progress', 'awaiting_payment'].includes(r.status)).length,
+    active: requests.filter(r => ['open', 'accepted', 'in_progress'].includes(r.status)).length,
     completed: requests.filter(r => r.status === 'completed').length,
     cancelled: requests.filter(r => r.status === 'cancelled').length
   };
@@ -290,6 +253,9 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                       <div className="flex-1">
                         <p className="text-sm font-semibold text-amber-800">Waiting for a cleaner</p>
                         <p className="text-xs text-amber-600">Your request is visible to verified cleaners in Ontario</p>
+                        {req.paymentStatus === 'paid' && (
+                          <p className="text-xs text-green-700 font-semibold mt-1">Payment complete — a cleaner will call you before arriving.</p>
+                        )}
                       </div>
                     </div>
                   )}
@@ -305,37 +271,15 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                           <p className="text-xs text-purple-600">{req.cleanerName} is currently cleaning your space</p>
                         </div>
                       </div>
-                      {req.paymentStatus === 'held' && (
+                      {(req.paymentStatus === 'paid' || req.paymentStatus === 'held') && req.status === 'in_progress' && (
                         <div className="mt-2 flex items-center gap-2 text-xs text-green-700 bg-green-50 px-3 py-2 rounded-lg border border-green-200">
                           <CheckCircle className="w-4 h-4 text-green-500" />
-                          <span><strong>${(Number(req.totalAmount) || 0).toFixed(2)}</strong> payment held — will be released when job is completed</span>
+                          <span><strong>${(Number(req.totalAmount) || 0).toFixed(2)}</strong> payment complete</span>
                         </div>
                       )}
                     </div>
                   )}
 
-                  {req.status === 'awaiting_payment' && (
-                    <div className="mt-4 p-4 bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 rounded-xl">
-                      <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center flex-shrink-0">
-                          <CreditCard className="w-5 h-5 text-orange-600" />
-                        </div>
-                        <div className="flex-1">
-                          <p className="font-semibold text-orange-800">Payment Required to Start Cleaning</p>
-                          <p className="text-sm text-orange-600 mt-0.5">
-                            {req.cleanerName} is ready to begin. Pay now to authorize the cleaning — your money is held securely and only released after the job is done.
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => setPaymentReq(req)}
-                        className="mt-3 w-full py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
-                      >
-                        <Wallet className="w-5 h-5" />
-                        Pay ${(Number(req.totalAmount) || 0).toFixed(2)} CAD — Hold & Start
-                      </button>
-                    </div>
-                  )}
                 </div>
 
                 {/* Expanded Content */}
@@ -401,16 +345,8 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                           <span className="text-gray-600">Service ({req.hours}h @ ${Number(req.hourlyRate) || 35}/hr)</span>
                           <span className="font-semibold">${(Number(req.totalAmount) || 0).toFixed(2)}</span>
                         </div>
-                        <div className="flex justify-between text-gray-500">
-                          <span>Platform fee (included)</span>
-                          <span>${(Number(req.platformCommission) || 0).toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between text-gray-500">
-                          <span>Cleaner receives</span>
-                          <span className="text-green-600">${(Number(req.cleanerPayout) || 0).toFixed(2)}</span>
-                        </div>
                         <div className="pt-2 border-t border-gray-100 flex justify-between font-bold">
-                          <span>Total</span>
+                          <span>Total Paid</span>
                           <span className="text-purple-600">${(Number(req.totalAmount) || 0).toFixed(2)}</span>
                         </div>
                       </div>
@@ -425,7 +361,25 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                     )}
 
                     {/* Images */}
-                    {req.images && req.images.length > 0 && (
+                    {req.roomImages ? (
+                      (Object.entries(req.roomImages) as [string, string[]][]).some(([, imgs]) => imgs && imgs.length > 0) && (
+                        <div className="mb-4 p-4 bg-white rounded-xl border border-gray-100">
+                          <p className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-3">Photos</p>
+                          {(Object.entries(req.roomImages) as [string, string[]][]).map(([roomKey, imgs]) => (
+                            imgs && imgs.length > 0 && (
+                              <div key={roomKey} className="mb-2">
+                                <p className="text-xs font-semibold text-gray-500 mb-1">{formatRoomKey(roomKey)}</p>
+                                <div className="flex gap-2 overflow-x-auto">
+                                  {imgs.map((img, idx) => (
+                                    <img key={idx} src={img} alt="" className="w-20 h-20 rounded-lg object-cover flex-shrink-0" />
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          ))}
+                        </div>
+                      )
+                    ) : req.images && req.images.length > 0 ? (
                       <div className="mb-4 p-4 bg-white rounded-xl border border-gray-100">
                         <p className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-3">Photos</p>
                         <div className="flex gap-2 overflow-x-auto">
@@ -434,7 +388,7 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                           ))}
                         </div>
                       </div>
-                    )}
+                    ) : null}
 
                     {/* Actions */}
                     <div className="flex flex-wrap gap-2 pt-2">
@@ -454,26 +408,7 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                           View Booking Quote
                         </Button>
                       )}
-                      {req.status === 'awaiting_payment' && (
-                        <>
-                          <Button
-                            onClick={() => setPaymentReq(req)}
-                            className="text-sm bg-gradient-to-r from-purple-600 to-pink-600"
-                          >
-                            <Wallet className="w-4 h-4" />
-                            Pay & Start Cleaning
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            onClick={() => setInvoiceState({ req, type: 'proforma' })}
-                            className="text-sm"
-                          >
-                            <FileText className="w-4 h-4" />
-                            View Quote
-                          </Button>
-                        </>
-                      )}
-                      {req.status === 'in_progress' && req.paymentStatus === 'held' && (
+                      {req.status === 'in_progress' && (req.paymentStatus === 'paid' || req.paymentStatus === 'held') && (
                         <Button
                           variant="secondary"
                           onClick={() => setInvoiceState({ req, type: 'payment' })}
@@ -537,15 +472,6 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
         />
       )}
 
-      {/* Payment Checkout Modal */}
-      {paymentReq && (
-        <PaymentCheckout
-          request={paymentReq}
-          isOpen={true}
-          onClose={() => setPaymentReq(null)}
-          onPaymentSuccess={handlePaymentSuccess}
-        />
-      )}
     </div>
   );
 };

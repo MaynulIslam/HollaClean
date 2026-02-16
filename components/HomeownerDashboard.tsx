@@ -12,7 +12,7 @@ import { Notification } from '../utils/notifications';
 import {
   Plus, Calendar, LogOut, User as UserIcon, LayoutDashboard, Sparkles,
   Clock, DollarSign, CheckCircle, Star, ArrowRight, Home,
-  MapPin, Phone, Shield, TrendingUp, AlertCircle, RefreshCw, CreditCard, Bell, X
+  MapPin, Phone, Shield, TrendingUp, AlertCircle, RefreshCw
 } from 'lucide-react';
 
 interface Props {
@@ -27,8 +27,6 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) =
   const [recentRequests, setRecentRequests] = useState<CleaningRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeRequest, setActiveRequest] = useState<CleaningRequest | null>(null);
-  const [showPaymentToast, setShowPaymentToast] = useState(false);
-  const [prevActiveStatus, setPrevActiveStatus] = useState<string | null>(null);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -41,12 +39,9 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) =
       const req = await storage.get(key);
       if (req && req.homeownerId === user.id) {
         total++;
-        if (['open', 'accepted', 'in_progress', 'awaiting_payment'].includes(req.status)) {
+        if (['open', 'accepted', 'in_progress'].includes(req.status)) {
           active++;
-          // Prioritize awaiting_payment as the active request
-          if (req.status === 'awaiting_payment') {
-            currentActive = req;
-          } else if (!currentActive || (currentActive.status !== 'awaiting_payment' && new Date(req.createdAt) > new Date(currentActive.createdAt))) {
+          if (!currentActive || new Date(req.createdAt) > new Date(currentActive.createdAt)) {
             currentActive = req;
           }
         }
@@ -70,17 +65,6 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) =
     return () => clearInterval(interval);
   }, [view]);
 
-  // Show payment toast when a request transitions to awaiting_payment
-  useEffect(() => {
-    if (activeRequest?.status === 'awaiting_payment' && prevActiveStatus !== 'awaiting_payment') {
-      setShowPaymentToast(true);
-      // Auto-dismiss after 15 seconds
-      const timer = setTimeout(() => setShowPaymentToast(false), 15000);
-      return () => clearTimeout(timer);
-    }
-    setPrevActiveStatus(activeRequest?.status || null);
-  }, [activeRequest?.status]);
-
   const handleNotificationClick = (notification: Notification) => {
     // Navigate to My Requests when clicking payment or job-related notifications
     if (notification.link === '/my-requests') {
@@ -93,7 +77,6 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) =
       open: { bg: 'bg-green-100', text: 'text-green-700', icon: 'text-green-500' },
       accepted: { bg: 'bg-blue-100', text: 'text-blue-700', icon: 'text-blue-500' },
       in_progress: { bg: 'bg-purple-100', text: 'text-purple-700', icon: 'text-purple-500' },
-      awaiting_payment: { bg: 'bg-orange-100', text: 'text-orange-700', icon: 'text-orange-500' },
       completed: { bg: 'bg-gray-100', text: 'text-gray-700', icon: 'text-gray-500' },
       cancelled: { bg: 'bg-red-100', text: 'text-red-700', icon: 'text-red-500' }
     };
@@ -162,41 +145,6 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) =
         </div>
       </header>
 
-      {/* Payment Required Toast Banner */}
-      {showPaymentToast && activeRequest?.status === 'awaiting_payment' && (
-        <div className="sticky top-[57px] z-20 animate-in slide-in-from-top duration-300">
-          <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-orange-500 text-white px-4 py-3 shadow-lg">
-            <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0 animate-pulse">
-                  <CreditCard className="w-5 h-5" />
-                </div>
-                <div className="min-w-0">
-                  <p className="font-bold text-sm">Payment Required — Your cleaner is ready!</p>
-                  <p className="text-white/80 text-xs truncate">
-                    {activeRequest.cleanerName} wants to start your {activeRequest.serviceType}. Pay ${(Number(activeRequest.totalAmount) || 0).toFixed(2)} to begin.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  onClick={() => { setShowPaymentToast(false); setView('my_requests'); }}
-                  className="px-4 py-2 bg-white text-orange-600 font-bold text-sm rounded-lg hover:bg-orange-50 transition-colors"
-                >
-                  Pay Now
-                </button>
-                <button
-                  onClick={() => setShowPaymentToast(false)}
-                  className="p-1 text-white/70 hover:text-white transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Main Content */}
       <main className="flex-1 p-4 md:p-8 max-w-6xl mx-auto w-full">
         {view === 'overview' && (
@@ -248,13 +196,11 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) =
 
             {/* Active Request Alert */}
             {activeRequest && (
-              <Card className={`${activeRequest.status === 'awaiting_payment' ? 'bg-gradient-to-r from-orange-500 to-amber-500' : activeRequest.status === 'in_progress' && activeRequest.paymentStatus === 'held' ? 'bg-gradient-to-r from-emerald-600 to-teal-600' : 'bg-gradient-to-r from-purple-600 to-pink-600'} text-white p-5 border-0`}>
+              <Card className={`${activeRequest.status === 'in_progress' && (activeRequest.paymentStatus === 'paid' || activeRequest.paymentStatus === 'held') ? 'bg-gradient-to-r from-emerald-600 to-teal-600' : 'bg-gradient-to-r from-purple-600 to-pink-600'} text-white p-5 border-0`}>
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-4">
                     <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
-                      {activeRequest.status === 'awaiting_payment' ? (
-                        <DollarSign className="w-6 h-6" />
-                      ) : activeRequest.status === 'in_progress' ? (
+                      {activeRequest.status === 'in_progress' ? (
                         <RefreshCw className="w-6 h-6 animate-spin" />
                       ) : activeRequest.status === 'accepted' ? (
                         <CheckCircle className="w-6 h-6" />
@@ -264,9 +210,7 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) =
                     </div>
                     <div>
                       <p className="text-white/70 text-sm font-medium uppercase tracking-wider">
-                        {activeRequest.status === 'awaiting_payment'
-                          ? 'Payment Required'
-                          : activeRequest.status === 'in_progress'
+                        {activeRequest.status === 'in_progress'
                           ? 'Cleaning In Progress'
                           : activeRequest.status === 'accepted'
                           ? 'Cleaner Confirmed'
@@ -289,14 +233,14 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) =
                           </span>
                         )}
                       </div>
-                      {activeRequest.status === 'awaiting_payment' && (
+                      {activeRequest.status === 'in_progress' && (activeRequest.paymentStatus === 'paid' || activeRequest.paymentStatus === 'held') && (
                         <p className="text-white/90 text-sm mt-2 font-semibold">
-                          Cleaner is ready! Pay ${(Number(activeRequest.totalAmount) || 0).toFixed(2)} to start cleaning.
+                          ${(Number(activeRequest.totalAmount) || 0).toFixed(2)} paid — cleaning in progress.
                         </p>
                       )}
-                      {activeRequest.status === 'in_progress' && activeRequest.paymentStatus === 'held' && (
+                      {activeRequest.status === 'open' && activeRequest.paymentStatus === 'paid' && (
                         <p className="text-white/90 text-sm mt-2 font-semibold">
-                          ${(Number(activeRequest.totalAmount) || 0).toFixed(2)} held securely — released on completion.
+                          Payment complete — a cleaner will call you before arriving.
                         </p>
                       )}
                     </div>
@@ -305,7 +249,7 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) =
                     onClick={() => setView('my_requests')}
                     className="flex items-center gap-1 text-white/80 hover:text-white transition-colors text-sm font-semibold"
                   >
-                    {activeRequest.status === 'awaiting_payment' ? 'Pay Now' : 'View Details'}
+                    View Details
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>

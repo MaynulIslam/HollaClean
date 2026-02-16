@@ -107,11 +107,16 @@ export const CONFIG = {
     checkIntervalMs: 60000, // Check every 60 seconds
   },
 
+  // Geolocation / proximity settings
+  geolocation: {
+    maxAcceptDistance: 100, // meters — cleaner must be within this range to accept a job
+  },
+
   // Server configuration
   server: {
     apiUrl: 'http://localhost:3001/api',
     // Stripe publishable key - set this in production
-    stripePublishableKey: '', // pk_test_xxx or pk_live_xxx
+    stripePublishableKey: (typeof process !== 'undefined' && process.env?.STRIPE_PUBLISHABLE_KEY) || '',
   },
 
   // Contact and support
@@ -128,6 +133,75 @@ export const CONFIG = {
     cookiePolicy: '/cookies',
   },
 };
+
+// ─── Dynamic Platform Config (admin-editable, persisted in localStorage) ───
+
+export interface PlatformConfig {
+  pricing: {
+    platformCommissionRate: number;
+    cleanerPayoutRate: number;
+    minimumHourlyRate: number;
+    maximumHourlyRate: number;
+    defaultHourlyRate: number;
+  };
+  geolocation: {
+    maxAcceptDistance: number;
+  };
+  booking: {
+    minHours: number;
+    maxHours: number;
+    advanceBookingDays: number;
+  };
+  photoTips: Record<string, string>;
+  features: Record<string, boolean>;
+}
+
+const PLATFORM_CONFIG_KEY = 'config:platform';
+
+/** Default photo tips (used as fallback) */
+export const DEFAULT_PHOTO_TIPS: Record<string, string> = {
+  bedroom: 'Take a wide-angle photo from the doorway showing the full room. Include any areas needing special attention (under the bed, closet).',
+  bathroom: 'Capture the full bathroom — toilet, sink, shower/tub area. Highlight any stains, mold, or hard water buildup.',
+  kitchen: 'Photograph countertops, stovetop, sink, and floor. Show inside the oven or fridge if they need cleaning.',
+  livingRoom: 'Stand in a corner and capture the full room. Include upholstery, shelves, and any hard-to-reach areas.',
+  other: 'Take a wide shot showing the full space. Point out anything that needs special attention.',
+};
+
+/** Get the merged platform config: admin overrides + defaults */
+export function getPlatformConfig(): PlatformConfig {
+  try {
+    const raw = localStorage.getItem(PLATFORM_CONFIG_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw) as Partial<PlatformConfig>;
+      return {
+        pricing: { ...CONFIG.pricing, ...saved.pricing },
+        geolocation: { ...CONFIG.geolocation, ...saved.geolocation },
+        booking: {
+          minHours: CONFIG.booking.minHours,
+          maxHours: CONFIG.booking.maxHours,
+          advanceBookingDays: CONFIG.booking.advanceBookingDays,
+          ...saved.booking,
+        },
+        photoTips: { ...DEFAULT_PHOTO_TIPS, ...saved.photoTips },
+        features: { ...CONFIG.features, ...saved.features },
+      };
+    }
+  } catch { /* ignore parse errors, fall through to defaults */ }
+  return {
+    pricing: { ...CONFIG.pricing },
+    geolocation: { ...CONFIG.geolocation },
+    booking: { minHours: CONFIG.booking.minHours, maxHours: CONFIG.booking.maxHours, advanceBookingDays: CONFIG.booking.advanceBookingDays },
+    photoTips: { ...DEFAULT_PHOTO_TIPS },
+    features: { ...CONFIG.features },
+  };
+}
+
+/** Save admin-edited platform config */
+export function savePlatformConfig(config: PlatformConfig): void {
+  // Keep cleanerPayoutRate in sync with commission
+  config.pricing.cleanerPayoutRate = +(1 - config.pricing.platformCommissionRate).toFixed(4);
+  localStorage.setItem(PLATFORM_CONFIG_KEY, JSON.stringify(config));
+}
 
 // Helper function to calculate payment breakdown
 export function calculatePayment(hourlyRate: number, hours: number) {

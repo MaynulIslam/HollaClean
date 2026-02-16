@@ -36,7 +36,7 @@ const EVENT_CONFIG: Record<AdminEvent, { configKey: keyof Pick<Awaited<ReturnTyp
   payment_completed: {
     configKey: 'adminNotifyOnPayment',
     subject: (d) => `Payment Received: $${d.amount?.toFixed(2)} for ${d.serviceType}`,
-    body: (d) => `A payment has been received.\n\nService: ${d.serviceType}\nAmount: $${d.amount?.toFixed(2)}\nHomeowner: ${d.homeownerName}\nCleaner: ${d.cleanerName}\nRequest ID: ${d.requestId}\n\nPayment is held securely until job completion.`,
+    body: (d) => `A payment has been received.\n\nService: ${d.serviceType}\nAmount: $${d.amount?.toFixed(2)}\nHomeowner: ${d.homeownerName}\nCleaner: ${d.cleanerName}\nRequest ID: ${d.requestId}`,
   },
   job_completed: {
     configKey: 'adminNotifyOnCompletion',

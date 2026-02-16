@@ -19,7 +19,12 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 // CORS configuration
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: [
+    process.env.FRONTEND_URL || 'http://localhost:3000',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://0.0.0.0:3000',
+  ],
   credentials: true
 }));
 
@@ -82,9 +87,6 @@ app.post('/api/payments/create-intent', async (req, res) => {
     const platformFee = Math.round(amountInCents * (PLATFORM_FEE_PERCENT / 100));
     const cleanerPayout = amountInCents - platformFee;
 
-    // Get cleaner's connected account (if they have one)
-    const cleanerAccount = connectedAccounts.get(cleanerId);
-
     // Create payment intent
     const paymentIntentParams = {
       amount: amountInCents,
@@ -92,23 +94,24 @@ app.post('/api/payments/create-intent', async (req, res) => {
       metadata: {
         requestId,
         homeownerId,
-        cleanerId,
+        cleanerId: cleanerId || 'pending',
         platformFee: platformFee.toString(),
         cleanerPayout: cleanerPayout.toString()
       },
       description: description || `HollaClean - Cleaning Service`,
       receipt_email: homeownerEmail,
-      automatic_payment_methods: {
-        enabled: true,
-      },
+      payment_method_types: ['card'],
     };
 
-    // If cleaner has connected account, set up for automatic transfer
-    if (cleanerAccount?.accountId) {
-      paymentIntentParams.transfer_data = {
-        destination: cleanerAccount.accountId,
-        amount: cleanerPayout, // Amount to transfer to cleaner
-      };
+    // If a real cleaner is assigned (not upfront/pending), set up transfer
+    if (cleanerId && cleanerId !== 'pending') {
+      const cleanerAccount = connectedAccounts.get(cleanerId);
+      if (cleanerAccount?.accountId) {
+        paymentIntentParams.transfer_data = {
+          destination: cleanerAccount.accountId,
+          amount: cleanerPayout, // Amount to transfer to cleaner
+        };
+      }
     }
 
     const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams);
@@ -471,6 +474,12 @@ app.post('/api/webhooks/stripe',
             break;
           }
         }
+        break;
+
+      case 'payment_intent.created':
+      case 'charge.succeeded':
+      case 'charge.updated':
+        // Expected events, no action needed
         break;
 
       default:

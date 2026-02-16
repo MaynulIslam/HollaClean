@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, CleaningRequest } from '../types';
 import { storage } from '../utils/storage';
 import { Card, Button, Badge } from './UI';
@@ -7,13 +7,26 @@ import VerificationBadge from './VerificationBadge';
 import { NotificationHelpers } from '../utils/notifications';
 import { ExternalNotify } from '../utils/externalNotifications';
 import { notifyAdmin } from '../utils/adminNotifications';
-import { CONFIG } from '../utils/config';
+import { CONFIG, getPlatformConfig } from '../utils/config';
+import { getCleanerPosition, checkProximity, formatDistance, Coordinates } from '../utils/geolocation';
 import {
   Clock, MapPin, Sparkles, User as UserIcon, CheckCircle, Calendar,
   DollarSign, ChevronDown, ChevronUp, Navigation, Image as ImageIcon,
   Zap, Eye, ArrowRight, AlertCircle, Ruler, Layers, Grid3X3, PawPrint,
-  Wrench, Package, CheckSquare
+  Wrench, Package, CheckSquare, LocateFixed, Loader2
 } from 'lucide-react';
+
+// Format room key like "bedroom_1" → "Bedroom 1"
+function formatRoomKey(key: string): string {
+  const parts = key.split('_');
+  const num = parts.pop();
+  const type = parts.join('_');
+  const labels: Record<string, string> = { bedroom: 'Bedroom', bathroom: 'Bathroom', kitchen: 'Kitchen', livingRoom: 'Living Room', other: 'Other Room', bedrooms: 'Bedrooms', bathrooms: 'Bathrooms' };
+  const label = labels[type] || type;
+  // If the key has no numeric suffix (old format), just show the label
+  if (!num || isNaN(Number(num))) return labels[key] || (key === 'livingRoom' ? 'Living Room' : key);
+  return `${label} ${num}`;
+}
 
 // Tools & supplies recommendations by service type
 const serviceToolsMap: Record<string, { essential: string[]; recommended: string[]; floorSpecific?: Record<string, string[]> }> = {
@@ -79,6 +92,61 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [homeownerVerifications, setHomeownerVerifications] = useState<Record<string, { email: boolean; phone: boolean; address: boolean }>>({});
+
+  // Proximity state
+  const [cleanerPosition, setCleanerPosition] = useState<Coordinates | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [locationLoading, setLocationLoading] = useState(true);
+  const [jobDistances, setJobDistances] = useState<Record<string, number | null>>({});
+  const checkedAddressesRef = useRef<Set<string>>(new Set());
+
+  // Get cleaner's GPS position on mount
+  useEffect(() => {
+    const fetchPosition = async () => {
+      try {
+        setLocationLoading(true);
+        const pos = await getCleanerPosition();
+        setCleanerPosition(pos);
+        setLocationError(null);
+      } catch (err: any) {
+        setLocationError(err.message || 'Unable to get location');
+        setCleanerPosition(null);
+      } finally {
+        setLocationLoading(false);
+      }
+    };
+    fetchPosition();
+
+    // Refresh position every 30 seconds
+    const interval = setInterval(fetchPosition, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Calculate distances when requests or cleaner position changes
+  useEffect(() => {
+    if (!cleanerPosition || requests.length === 0) return;
+
+    const calculateDistances = async () => {
+      const newDistances: Record<string, number | null> = { ...jobDistances };
+
+      for (const req of requests) {
+        // Skip if we've already checked this address
+        if (checkedAddressesRef.current.has(req.id)) continue;
+
+        const result = await checkProximity(
+          cleanerPosition,
+          req.address,
+          getPlatformConfig().geolocation.maxAcceptDistance
+        );
+        newDistances[req.id] = result.distance;
+        checkedAddressesRef.current.add(req.id);
+      }
+
+      setJobDistances(newDistances);
+    };
+
+    calculateDistances();
+  }, [cleanerPosition, requests]);
 
   const loadFeed = async () => {
     const keys = await storage.list('request:');
@@ -211,6 +279,50 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
         </div>
       </div>
 
+      {/* Location Status Banner */}
+      {locationLoading ? (
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-3 mb-4">
+          <Loader2 className="w-5 h-5 text-blue-600 animate-spin flex-shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-blue-800">Getting your location...</p>
+            <p className="text-xs text-blue-600">This is needed to show distance to job locations</p>
+          </div>
+        </div>
+      ) : locationError ? (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 mb-4">
+          <LocateFixed className="w-5 h-5 text-red-600 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-red-800">Location Required</p>
+            <p className="text-xs text-red-600">{locationError}</p>
+          </div>
+          <button
+            onClick={async () => {
+              setLocationLoading(true);
+              try {
+                const pos = await getCleanerPosition();
+                setCleanerPosition(pos);
+                setLocationError(null);
+              } catch (err: any) {
+                setLocationError(err.message);
+              } finally {
+                setLocationLoading(false);
+              }
+            }}
+            className="px-3 py-1.5 bg-red-100 text-red-700 text-xs font-semibold rounded-lg hover:bg-red-200 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      ) : cleanerPosition ? (
+        <div className="p-3 bg-green-50 border border-green-200 rounded-xl flex items-center gap-3 mb-4">
+          <LocateFixed className="w-5 h-5 text-green-600 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-green-800">Location active</p>
+            <p className="text-xs text-green-600">Distance to jobs shown below. You must be within {getPlatformConfig().geolocation.maxAcceptDistance}m to start cleaning.</p>
+          </div>
+        </div>
+      ) : null}
+
       {/* Requests List */}
       {requests.length === 0 ? (
         <Card className="p-12 text-center">
@@ -228,6 +340,10 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
           const isExpanded = expandedId === req.id;
           const isAccepting = acceptingId === req.id;
           const earnings = calculateEarnings(req.hours);
+          const distance = jobDistances[req.id];
+          const isWithinRange = distance !== null && distance !== undefined && distance <= getPlatformConfig().geolocation.maxAcceptDistance;
+          const isTooFar = distance !== null && distance !== undefined && distance > getPlatformConfig().geolocation.maxAcceptDistance;
+          const distanceUnknown = distance === null || distance === undefined;
 
           return (
             <Card key={req.id} className="overflow-hidden hover:shadow-lg transition-all border-2 border-transparent hover:border-pink-200">
@@ -254,9 +370,23 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
                           {req.time} • {req.hours}h
                         </span>
                       </div>
-                      <div className="flex items-center gap-1 mt-2 text-sm text-gray-500">
-                        <MapPin className="w-4 h-4 text-pink-500" />
-                        <span className="truncate">{req.address.split(',').slice(0, 2).join(',')}</span>
+                      <div className="flex items-center gap-2 mt-2 text-sm text-gray-500">
+                        <div className="flex items-center gap-1 min-w-0">
+                          <MapPin className="w-4 h-4 text-pink-500 flex-shrink-0" />
+                          <span className="truncate">{req.address.split(',').slice(0, 2).join(',')}</span>
+                        </div>
+                        {isWithinRange && (
+                          <span className="inline-flex items-center gap-1 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
+                            <LocateFixed className="w-3 h-3" />
+                            {formatDistance(distance!)}
+                          </span>
+                        )}
+                        {isTooFar && (
+                          <span className="inline-flex items-center gap-1 text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
+                            <LocateFixed className="w-3 h-3" />
+                            {formatDistance(distance!)} away
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -266,13 +396,13 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
                     <div className="text-right">
                       <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">You'll Earn</p>
                       <p className="text-2xl font-bold text-pink-600">${earnings.toFixed(2)}</p>
-                      <p className="text-xs text-gray-400">after 20% fee</p>
+                      <p className="text-xs text-gray-400">your earnings</p>
                     </div>
                     <div className="flex flex-col gap-2">
                       <Button
                         onClick={() => handleAccept(req.id)}
                         disabled={isAccepting}
-                        className="bg-gradient-to-r from-pink-600 to-orange-500 text-sm px-6"
+                        className="text-sm px-6 bg-gradient-to-r from-pink-600 to-orange-500"
                       >
                         {isAccepting ? (
                           <span className="flex items-center gap-2">
@@ -357,12 +487,20 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
                             {req.floorType}
                           </span>
                         )}
-                        {req.numberOfRooms && (
+                        {(req.numberOfBedrooms || req.numberOfBathrooms || req.numberOfKitchens || req.numberOfLivingRooms || req.numberOfOtherRooms) ? (
+                          <>
+                            {req.numberOfBedrooms && <span className="inline-flex items-center gap-1.5 text-sm bg-gray-50 text-gray-700 px-3 py-1.5 rounded-lg border border-gray-100">{req.numberOfBedrooms} Bed</span>}
+                            {req.numberOfBathrooms && <span className="inline-flex items-center gap-1.5 text-sm bg-gray-50 text-gray-700 px-3 py-1.5 rounded-lg border border-gray-100">{req.numberOfBathrooms} Bath</span>}
+                            {req.numberOfKitchens && <span className="inline-flex items-center gap-1.5 text-sm bg-gray-50 text-gray-700 px-3 py-1.5 rounded-lg border border-gray-100">{req.numberOfKitchens} Kitchen</span>}
+                            {req.numberOfLivingRooms && <span className="inline-flex items-center gap-1.5 text-sm bg-gray-50 text-gray-700 px-3 py-1.5 rounded-lg border border-gray-100">{req.numberOfLivingRooms} Living</span>}
+                            {req.numberOfOtherRooms && <span className="inline-flex items-center gap-1.5 text-sm bg-gray-50 text-gray-700 px-3 py-1.5 rounded-lg border border-gray-100">{req.numberOfOtherRooms} Other</span>}
+                          </>
+                        ) : req.numberOfRooms ? (
                           <span className="inline-flex items-center gap-1.5 text-sm bg-gray-50 text-gray-700 px-3 py-1.5 rounded-lg border border-gray-100">
                             <Grid3X3 className="w-3.5 h-3.5 text-gray-400" />
                             {req.numberOfRooms} {req.numberOfRooms === 1 ? 'room' : 'rooms'}
                           </span>
-                        )}
+                        ) : null}
                         {req.hasPets && (
                           <span className="inline-flex items-center gap-1.5 text-sm bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg border border-amber-200">
                             <PawPrint className="w-3.5 h-3.5" />
@@ -463,7 +601,25 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
                   )}
 
                   {/* Photos */}
-                  {req.images && req.images.length > 0 && (
+                  {req.roomImages ? (
+                    (Object.entries(req.roomImages) as [string, string[]][]).some(([, imgs]) => imgs && imgs.length > 0) && (
+                      <div className="mb-4 p-4 bg-white rounded-xl border border-gray-100">
+                        <p className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-3">Photos from Homeowner</p>
+                        {(Object.entries(req.roomImages) as [string, string[]][]).map(([roomKey, imgs]) => (
+                          imgs && imgs.length > 0 && (
+                            <div key={roomKey} className="mb-2">
+                              <p className="text-xs font-semibold text-gray-500 mb-1">{formatRoomKey(roomKey)}</p>
+                              <div className="flex gap-2 overflow-x-auto">
+                                {imgs.map((img, idx) => (
+                                  <img key={idx} src={img} alt="" className="w-24 h-24 rounded-lg object-cover flex-shrink-0" />
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        ))}
+                      </div>
+                    )
+                  ) : req.images && req.images.length > 0 ? (
                     <div className="mb-4 p-4 bg-white rounded-xl border border-gray-100">
                       <p className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-3">Photos from Homeowner</p>
                       <div className="flex gap-2 overflow-x-auto">
@@ -472,19 +628,15 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
                         ))}
                       </div>
                     </div>
-                  )}
+                  ) : null}
 
                   {/* Earnings Breakdown */}
                   <div className="p-4 bg-gradient-to-br from-pink-50 to-orange-50 rounded-xl border border-pink-100">
-                    <p className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-3">Earnings Breakdown</p>
+                    <p className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-3">Your Earnings</p>
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-gray-600">Your Rate ({req.hours}h @ ${Number(cleaner.hourlyRate) || CONFIG.pricing.defaultHourlyRate}/hr)</span>
-                        <span className="font-semibold">${((Number(cleaner.hourlyRate) || CONFIG.pricing.defaultHourlyRate) * (Number(req.hours) || 3)).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-gray-500">
-                        <span>Platform fee (20%)</span>
-                        <span>-${((Number(cleaner.hourlyRate) || CONFIG.pricing.defaultHourlyRate) * (Number(req.hours) || 3) * CONFIG.pricing.platformCommissionRate).toFixed(2)}</span>
+                        <span className="text-gray-600">Service ({req.hours}h)</span>
+                        <span className="font-semibold">${earnings.toFixed(2)}</span>
                       </div>
                       <div className="pt-2 border-t border-pink-200 flex justify-between font-bold">
                         <span>Your Take-Home</span>
@@ -498,7 +650,7 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
                     <Button
                       onClick={() => handleAccept(req.id)}
                       disabled={isAccepting}
-                      className="bg-gradient-to-r from-pink-600 to-orange-500 px-8"
+                      className="px-8 bg-gradient-to-r from-pink-600 to-orange-500"
                     >
                       {isAccepting ? 'Accepting...' : 'Accept This Job'}
                       <ArrowRight className="w-4 h-4" />

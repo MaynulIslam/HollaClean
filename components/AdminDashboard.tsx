@@ -4,6 +4,7 @@ import { CleaningRequest, User, ServiceOffer } from '../types';
 import { storage } from '../utils/storage';
 import { Card, Badge, Button, Input } from './UI';
 import AdminFinance from './AdminFinance';
+import AdminSettings from './AdminSettings';
 import {
   getReminderConfig, setReminderConfig, getReminderLogs,
   ReminderConfig, ReminderLog
@@ -11,7 +12,8 @@ import {
 import {
   Shield, Users, Layers, TrendingUp, DollarSign,
   Briefcase, Plus, Trash2, Edit2, LogOut, Search, Download, X, Receipt,
-  MapPin, Lock, CreditCard, Landmark, Info, Wallet, Bell, Save, ToggleLeft, ToggleRight, Mail, Clock
+  MapPin, Lock, CreditCard, Landmark, Info, Wallet, Bell, Save, ToggleLeft, ToggleRight, Mail, Clock,
+  Settings, ChevronDown, ChevronUp, Image as ImageIcon, AlertCircle, CheckCircle
 } from 'lucide-react';
 
 interface Props {
@@ -19,7 +21,18 @@ interface Props {
   isAdmin?: boolean;
 }
 
-type AdminTab = 'requests' | 'services' | 'homeowners' | 'cleaners' | 'payments' | 'finance' | 'reminders';
+type AdminTab = 'requests' | 'services' | 'homeowners' | 'cleaners' | 'payments' | 'finance' | 'reminders' | 'settings';
+
+// Format room key like "bedroom_1" → "Bedroom 1"
+function formatRoomKey(key: string): string {
+  const parts = key.split('_');
+  const num = parts.pop();
+  const type = parts.join('_');
+  const labels: Record<string, string> = { bedroom: 'Bedroom', bathroom: 'Bathroom', kitchen: 'Kitchen', livingRoom: 'Living Room', other: 'Other Room', bedrooms: 'Bedrooms', bathrooms: 'Bathrooms' };
+  const label = labels[type] || type;
+  if (!num || isNaN(Number(num))) return labels[key] || (key === 'livingRoom' ? 'Living Room' : key);
+  return `${label} ${num}`;
+}
 
 const AdminDashboard: React.FC<Props> = ({ onBack }) => {
   const [authenticated, setAuthenticated] = useState(false);
@@ -48,6 +61,11 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
   // User Modal state
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<Partial<User>>({});
+
+  // Request expand/edit state
+  const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [editingRequest, setEditingRequest] = useState<Partial<CleaningRequest>>({});
 
   const checkAuth = () => {
     if (pass === 'admin') setAuthenticated(true);
@@ -222,6 +240,37 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
     document.body.removeChild(link);
   };
 
+  // Request CRUD
+  const handleOpenEditRequest = (req: CleaningRequest) => {
+    setEditingRequest({ ...req });
+    setIsRequestModalOpen(true);
+  };
+
+  const handleSaveRequest = async () => {
+    if (!editingRequest.id) return;
+    // Recalculate cleaner payout if total changed
+    const totalAmount = Number(editingRequest.totalAmount) || 0;
+    const commission = totalAmount * 0.20;
+    const updatedRequest = {
+      ...editingRequest,
+      totalAmount,
+      platformCommission: commission,
+      cleanerPayout: totalAmount - commission,
+    };
+    await storage.set(`request:${editingRequest.id}`, updatedRequest);
+    setIsRequestModalOpen(false);
+    await loadAll();
+  };
+
+  const handleCancelRequest = async (id: string) => {
+    if (!window.confirm('Are you sure you want to cancel this request? This cannot be undone.')) return;
+    const req = await storage.get(`request:${id}`);
+    if (req) {
+      await storage.set(`request:${id}`, { ...req, status: 'cancelled' });
+      await loadAll();
+    }
+  };
+
   const handleSaveReminders = async () => {
     if (!reminderConfig) return;
     setReminderSaving(true);
@@ -273,7 +322,7 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
               <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
                 <div className="relative flex-1 md:min-w-[300px]">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input 
+                  <input
                     type="text"
                     placeholder="Search requests, owners, or cleaners..."
                     className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 outline-none transition-all"
@@ -291,29 +340,187 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
                 <table className="w-full text-left">
                   <thead className="bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-400">
                     <tr>
+                      <th className="px-6 py-4"></th>
                       <th className="px-6 py-4">Request ID</th>
                       <th className="px-6 py-4">Status</th>
                       <th className="px-6 py-4">Homeowner</th>
                       <th className="px-6 py-4">Cleaner</th>
                       <th className="px-6 py-4">Service</th>
                       <th className="px-6 py-4 text-right">Rev</th>
+                      <th className="px-6 py-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {filteredRequests.length > 0 ? (
-                      filteredRequests.map(req => (
-                        <tr key={req.id} className="hover:bg-gray-50/50 transition-colors">
-                          <td className="px-6 py-4 font-mono text-[10px] text-gray-400">{req.id.slice(-8)}</td>
-                          <td className="px-6 py-4"><Badge status={req.status} /></td>
-                          <td className="px-6 py-4 font-bold text-sm text-gray-800">{req.homeownerName}</td>
-                          <td className="px-6 py-4 text-sm text-gray-500">{req.cleanerName || '-'}</td>
-                          <td className="px-6 py-4 text-sm text-gray-600">{req.serviceType}</td>
-                          <td className="px-6 py-4 text-right font-bold text-green-600 text-sm">${(Number(req.platformCommission) || 0).toFixed(2)}</td>
-                        </tr>
-                      ))
+                      filteredRequests.map(req => {
+                        const isExpanded = expandedRequestId === req.id;
+                        return (
+                          <React.Fragment key={req.id}>
+                            <tr
+                              className="hover:bg-gray-50/50 transition-colors cursor-pointer"
+                              onClick={() => setExpandedRequestId(isExpanded ? null : req.id)}
+                            >
+                              <td className="px-3 py-4 w-8">
+                                {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                              </td>
+                              <td className="px-6 py-4 font-mono text-[10px] text-gray-400">{req.id.slice(-8)}</td>
+                              <td className="px-6 py-4"><Badge status={req.status} /></td>
+                              <td className="px-6 py-4 font-bold text-sm text-gray-800">{req.homeownerName}</td>
+                              <td className="px-6 py-4 text-sm text-gray-500">{req.cleanerName || '-'}</td>
+                              <td className="px-6 py-4 text-sm text-gray-600">{req.serviceType}</td>
+                              <td className="px-6 py-4 text-right font-bold text-green-600 text-sm">${(Number(req.platformCommission) || 0).toFixed(2)}</td>
+                              <td className="px-6 py-4 text-right">
+                                <div className="flex justify-end items-center gap-1" onClick={e => e.stopPropagation()}>
+                                  <button
+                                    onClick={() => handleOpenEditRequest(req)}
+                                    className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
+                                    title="Edit Request"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                  {req.status !== 'cancelled' && req.status !== 'completed' && (
+                                    <button
+                                      onClick={() => handleCancelRequest(req.id)}
+                                      className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                      title="Cancel Request"
+                                    >
+                                      <X className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                            {/* Expanded Details Row */}
+                            {isExpanded && (
+                              <tr className="bg-gray-50/80">
+                                <td colSpan={8} className="px-6 py-5">
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                    {/* Left: Details */}
+                                    <div className="space-y-3">
+                                      <h4 className="text-xs font-black uppercase text-gray-400 tracking-widest">Request Details</h4>
+                                      <div className="space-y-2 text-sm">
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-500">Date & Time</span>
+                                          <span className="font-semibold text-gray-800">{req.date} at {req.time}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-500">Duration</span>
+                                          <span className="font-semibold text-gray-800">{req.hours} hours</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-500">Address</span>
+                                          <span className="font-semibold text-gray-800 text-right max-w-[200px]">{req.address}</span>
+                                        </div>
+                                        {req.squareFootage && (
+                                          <div className="flex justify-between">
+                                            <span className="text-gray-500">Sq Ft</span>
+                                            <span className="font-semibold text-gray-800">{req.squareFootage.toLocaleString()}</span>
+                                          </div>
+                                        )}
+                                        {req.floorType && (
+                                          <div className="flex justify-between">
+                                            <span className="text-gray-500">Floor</span>
+                                            <span className="font-semibold text-gray-800">{req.floorType}</span>
+                                          </div>
+                                        )}
+                                        {(req.numberOfBedrooms || req.numberOfBathrooms || req.numberOfKitchens || req.numberOfLivingRooms || req.numberOfOtherRooms) && (
+                                          <div className="flex justify-between">
+                                            <span className="text-gray-500">Rooms</span>
+                                            <span className="font-semibold text-gray-800">
+                                              {[
+                                                req.numberOfBedrooms && `${req.numberOfBedrooms} Bed`,
+                                                req.numberOfBathrooms && `${req.numberOfBathrooms} Bath`,
+                                                req.numberOfKitchens && `${req.numberOfKitchens} Kit`,
+                                                req.numberOfLivingRooms && `${req.numberOfLivingRooms} Liv`,
+                                                req.numberOfOtherRooms && `${req.numberOfOtherRooms} Other`,
+                                              ].filter(Boolean).join(', ')}
+                                            </span>
+                                          </div>
+                                        )}
+                                        {req.instructions && (
+                                          <div className="pt-2 border-t border-gray-200">
+                                            <p className="text-gray-500 text-xs mb-1">Instructions</p>
+                                            <p className="text-gray-700 text-xs">{req.instructions}</p>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Middle: Financials */}
+                                    <div className="space-y-3">
+                                      <h4 className="text-xs font-black uppercase text-gray-400 tracking-widest">Financials</h4>
+                                      <div className="space-y-2 text-sm">
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-500">Total Amount</span>
+                                          <span className="font-bold text-gray-900">${(Number(req.totalAmount) || 0).toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-500">Platform Commission</span>
+                                          <span className="font-bold text-green-600">+${(Number(req.platformCommission) || 0).toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-500">Cleaner Payout</span>
+                                          <span className="font-bold text-pink-600">${(Number(req.cleanerPayout) || 0).toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-500">Payment Status</span>
+                                          <span className={`font-bold ${req.paymentStatus === 'paid' ? 'text-green-600' : 'text-amber-600'}`}>
+                                            {req.paymentStatus}
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-500">Contact</span>
+                                          <span className="text-gray-800 text-xs">{req.homeownerPhone}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-500">Email</span>
+                                          <span className="text-gray-800 text-xs">{req.homeownerEmail}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-500">Created</span>
+                                          <span className="text-gray-800 text-xs">{new Date(req.createdAt).toLocaleString()}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Right: Room Images */}
+                                    <div className="space-y-3">
+                                      <h4 className="text-xs font-black uppercase text-gray-400 tracking-widest">Room Photos</h4>
+                                      {req.roomImages && Object.keys(req.roomImages).some(k => (req.roomImages as Record<string, string[]>)[k]?.length > 0) ? (
+                                        <div className="space-y-2">
+                                          {(Object.entries(req.roomImages) as [string, string[]][]).map(([roomKey, imgs]) => (
+                                            imgs && imgs.length > 0 && (
+                                              <div key={roomKey}>
+                                                <p className="text-xs font-semibold text-gray-500 mb-1">{formatRoomKey(roomKey)}</p>
+                                                <div className="flex gap-1.5 flex-wrap">
+                                                  {imgs.map((img, idx) => (
+                                                    <img key={idx} src={img} alt="" className="w-16 h-16 rounded-lg object-cover" />
+                                                  ))}
+                                                </div>
+                                              </div>
+                                            )
+                                          ))}
+                                        </div>
+                                      ) : req.images && req.images.length > 0 ? (
+                                        <div className="flex gap-1.5 flex-wrap">
+                                          {req.images.map((img, idx) => (
+                                            <img key={idx} src={img} alt="" className="w-16 h-16 rounded-lg object-cover" />
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <p className="text-xs text-gray-400">No photos attached</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })
                     ) : (
                       <tr>
-                        <td colSpan={6} className="px-6 py-20 text-center text-gray-400">
+                        <td colSpan={8} className="px-6 py-20 text-center text-gray-400">
                           {searchQuery ? `No results matching "${searchQuery}"` : "No requests found"}
                         </td>
                       </tr>
@@ -442,6 +649,8 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
         );
       case 'finance':
         return <AdminFinance />;
+      case 'settings':
+        return <AdminSettings />;
       case 'reminders': {
         const activeLogs = reminderLogs.filter(l => !l.stoppedReason);
         const stoppedLogs = reminderLogs.filter(l => !!l.stoppedReason);
@@ -761,7 +970,8 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
               { id: 'cleaners', label: 'Cleaners', icon: TrendingUp },
               { id: 'payments', label: 'Payments', icon: DollarSign },
               { id: 'finance', label: 'Stripe Finance', icon: Wallet },
-              { id: 'reminders', label: 'Reminders', icon: Bell }
+              { id: 'reminders', label: 'Reminders', icon: Bell },
+              { id: 'settings', label: 'Settings', icon: Settings }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -799,7 +1009,8 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
               { id: 'cleaners', label: 'Pros' },
               { id: 'payments', label: 'Payments' },
               { id: 'finance', label: 'Stripe' },
-              { id: 'reminders', label: 'Reminders' }
+              { id: 'reminders', label: 'Reminders' },
+              { id: 'settings', label: 'Settings' }
           ].map(tab => (
             <button
               key={tab.id}
@@ -999,6 +1210,184 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
                   {serviceModalMode === 'add' ? 'Create Service' : 'Update Service'}
                 </Button>
                 <Button variant="secondary" onClick={() => setIsServiceModalOpen(false)}>Cancel</Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* REQUEST EDIT MODAL */}
+      {isRequestModalOpen && editingRequest.id && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-gray-900/40 backdrop-blur-sm animate-in fade-in duration-300">
+          <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between mb-6 sticky top-0 bg-white/90 backdrop-blur-sm py-2 z-10">
+              <div>
+                <h2 className="text-2xl font-bold">Edit Request</h2>
+                <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest">ID: {editingRequest.id}</p>
+              </div>
+              <button onClick={() => setIsRequestModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+
+            <div className="space-y-8 pb-4">
+              {/* Status */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-purple-600 mb-2">
+                  <AlertCircle className="w-4 h-4" />
+                  <h3 className="text-xs font-black uppercase tracking-widest">Status & Assignment</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 ml-1 block mb-1">Request Status</label>
+                    <select
+                      className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 focus:border-purple-500 outline-none transition-all"
+                      value={editingRequest.status || 'open'}
+                      onChange={e => setEditingRequest({ ...editingRequest, status: e.target.value as any })}
+                    >
+                      <option value="open">Open</option>
+                      <option value="accepted">Accepted</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="completed">Completed</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 ml-1 block mb-1">Payment Status</label>
+                    <select
+                      className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 focus:border-purple-500 outline-none transition-all"
+                      value={editingRequest.paymentStatus || 'pending'}
+                      onChange={e => setEditingRequest({ ...editingRequest, paymentStatus: e.target.value as any })}
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="awaiting">Awaiting</option>
+                      <option value="held">Held</option>
+                      <option value="paid">Paid</option>
+                      <option value="demo_completed">Demo Completed</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Cleaner Assignment */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-purple-600 mb-2">
+                  <Users className="w-4 h-4" />
+                  <h3 className="text-xs font-black uppercase tracking-widest">Cleaner Assignment</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input
+                    label="Cleaner Name"
+                    value={editingRequest.cleanerName || ''}
+                    onChange={(e: any) => setEditingRequest({ ...editingRequest, cleanerName: e.target.value || null })}
+                    placeholder="Unassigned"
+                  />
+                  <Input
+                    label="Cleaner Phone"
+                    value={editingRequest.cleanerPhone || ''}
+                    onChange={(e: any) => setEditingRequest({ ...editingRequest, cleanerPhone: e.target.value || null })}
+                    placeholder="N/A"
+                  />
+                  <Input
+                    label="Accepted By (User ID)"
+                    value={editingRequest.acceptedBy || ''}
+                    onChange={(e: any) => setEditingRequest({ ...editingRequest, acceptedBy: e.target.value || null })}
+                    placeholder="Unassigned"
+                  />
+                  <Input
+                    label="Hourly Rate ($)"
+                    type="number"
+                    value={editingRequest.hourlyRate || ''}
+                    onChange={(e: any) => setEditingRequest({ ...editingRequest, hourlyRate: Number(e.target.value) || null })}
+                    placeholder="N/A"
+                  />
+                </div>
+              </div>
+
+              {/* Service & Schedule */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-purple-600 mb-2">
+                  <Briefcase className="w-4 h-4" />
+                  <h3 className="text-xs font-black uppercase tracking-widest">Service & Schedule</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <Input
+                    label="Service Type"
+                    value={editingRequest.serviceType || ''}
+                    onChange={(e: any) => setEditingRequest({ ...editingRequest, serviceType: e.target.value })}
+                  />
+                  <Input
+                    label="Date"
+                    type="date"
+                    value={editingRequest.date || ''}
+                    onChange={(e: any) => setEditingRequest({ ...editingRequest, date: e.target.value })}
+                  />
+                  <Input
+                    label="Hours"
+                    type="number"
+                    value={editingRequest.hours || 3}
+                    onChange={(e: any) => setEditingRequest({ ...editingRequest, hours: Number(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 ml-1 block mb-1">Address</label>
+                  <textarea
+                    className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 focus:border-purple-500 outline-none h-16 resize-none text-sm"
+                    value={editingRequest.address || ''}
+                    onChange={(e: any) => setEditingRequest({ ...editingRequest, address: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              {/* Financials */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-purple-600 mb-2">
+                  <DollarSign className="w-4 h-4" />
+                  <h3 className="text-xs font-black uppercase tracking-widest">Financial Override</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Input
+                      label="Total Amount ($)"
+                      type="number"
+                      value={editingRequest.totalAmount || 0}
+                      onChange={(e: any) => {
+                        const total = Number(e.target.value) || 0;
+                        setEditingRequest({
+                          ...editingRequest,
+                          totalAmount: total,
+                          platformCommission: +(total * 0.20).toFixed(2),
+                          cleanerPayout: +(total * 0.80).toFixed(2),
+                        });
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <Input
+                      label="Platform Commission ($)"
+                      type="number"
+                      value={editingRequest.platformCommission || 0}
+                      onChange={(e: any) => setEditingRequest({ ...editingRequest, platformCommission: Number(e.target.value) })}
+                    />
+                  </div>
+                  <div>
+                    <Input
+                      label="Cleaner Payout ($)"
+                      type="number"
+                      value={editingRequest.cleanerPayout || 0}
+                      onChange={(e: any) => setEditingRequest({ ...editingRequest, cleanerPayout: Number(e.target.value) })}
+                    />
+                  </div>
+                </div>
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 text-xs text-amber-700 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  Changing the total auto-recalculates commission (20%) and payout (80%). Override individual values after if needed.
+                </div>
+              </div>
+
+              <div className="pt-6 flex gap-3 sticky bottom-0 bg-white/90 backdrop-blur-sm py-4 border-t border-gray-100">
+                <Button onClick={handleSaveRequest} className="flex-1 shadow-purple-200">Force Save Changes</Button>
+                <Button variant="secondary" onClick={() => setIsRequestModalOpen(false)}>Discard</Button>
               </div>
             </div>
           </Card>

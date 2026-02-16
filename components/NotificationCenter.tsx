@@ -10,6 +10,7 @@ interface Props {
 
 const NotificationCenter: React.FC<Props> = ({ userId, onNotificationClick }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -112,7 +113,7 @@ const NotificationCenter: React.FC<Props> = ({ userId, onNotificationClick }) =>
     <div className="relative" ref={dropdownRef}>
       {/* Bell Button */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => { setIsOpen(!isOpen); if (isOpen) setShowAll(false); }}
         className="relative w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors"
         aria-label="Notifications"
       >
@@ -169,7 +170,7 @@ const NotificationCenter: React.FC<Props> = ({ userId, onNotificationClick }) =>
                 <p className="text-gray-400 text-xs mt-1">We'll notify you when something happens</p>
               </div>
             ) : (
-              notifications.map(notification => (
+              (showAll ? notifications : notifications.slice(0, 5)).map(notification => (
                 <div
                   key={notification.id}
                   onClick={() => handleNotificationClick(notification)}
@@ -214,10 +215,13 @@ const NotificationCenter: React.FC<Props> = ({ userId, onNotificationClick }) =>
           </div>
 
           {/* Footer */}
-          {notifications.length > 0 && (
+          {notifications.length > 5 && (
             <div className="p-3 border-t border-gray-100 text-center">
-              <button className="text-xs text-purple-600 hover:text-purple-700 font-semibold">
-                View all notifications
+              <button
+                onClick={() => setShowAll(!showAll)}
+                className="text-xs text-purple-600 hover:text-purple-700 font-semibold"
+              >
+                {showAll ? 'Show less' : `View all notifications (${notifications.length})`}
               </button>
             </div>
           )}

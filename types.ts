@@ -79,8 +79,16 @@ export interface CleaningRequest {
   // Property details (optional, helps with estimation)
   squareFootage?: number;
   floorType?: string;
-  numberOfRooms?: number;
+  numberOfRooms?: number; // backward compat: total rooms
+  numberOfBedrooms?: number;
+  numberOfBathrooms?: number;
+  numberOfKitchens?: number;
+  numberOfLivingRooms?: number;
+  numberOfOtherRooms?: number;
   hasPets?: boolean;
+
+  // Images organized by room type (new format)
+  roomImages?: Record<string, string[]>;
 
   // Reminder tracking
   remindersSent?: number;

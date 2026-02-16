@@ -178,7 +178,7 @@ export const ExternalNotify = {
       email,
       name,
       `HollaClean: Payment Required for ${serviceType}`,
-      `Hi ${name},\n\nGreat news! ${cleanerName} is ready to start your ${serviceType} cleaning.\n\nPlease log in and pay $${amount.toFixed(2)} to begin the cleaning session.\n\nYour payment will be held securely and released to the cleaner once the job is completed.\n\n— The HollaClean Team`
+      `Hi ${name},\n\nGreat news! ${cleanerName} is ready to start your ${serviceType} cleaning.\n\nPlease log in and pay $${amount.toFixed(2)} to confirm the cleaning session.\n\nA cleaner will call you before they arrive.\n\n— The HollaClean Team`
     );
   },
 
@@ -186,15 +186,15 @@ export const ExternalNotify = {
   async paymentHeld(email: string, name: string, serviceType: string) {
     sendPushNotification(
       'Payment Received — Start Cleaning!',
-      `The homeowner has paid for ${serviceType}. You can now begin!`,
-      { tag: 'payment-held' }
+      `The homeowner has paid for ${serviceType}. Please call the homeowner before arriving.`,
+      { tag: 'payment-received' }
     );
 
     await sendEmail(
       email,
       name,
       `HollaClean: Payment Received — Start ${serviceType}`,
-      `Hi ${name},\n\nThe homeowner has paid for the ${serviceType} job. You can now begin cleaning!\n\nThe payment will be released to you once you mark the job as complete.\n\nHappy cleaning!\n\n— The HollaClean Team`
+      `Hi ${name},\n\nThe homeowner has paid for the ${serviceType} job. Please call the homeowner before you arrive.\n\nHappy cleaning!\n\n— The HollaClean Team`
     );
   },
 
@@ -260,7 +260,7 @@ export const ExternalNotify = {
       email,
       name,
       `${urgencyPrefix}HollaClean Payment Reminder — ${serviceType}`,
-      `Hi ${name},\n\nThis is a ${urgency === 'final' ? 'final ' : urgency === 'urgent' ? 'urgent ' : ''}reminder to complete your payment of $${amount.toFixed(2)} for your ${serviceType} cleaning with ${cleanerName}.\n\nPlease log in to HollaClean and pay to confirm your booking. Your payment is held securely and only released after the job is completed.\n\n— The HollaClean Team`
+      `Hi ${name},\n\nThis is a ${urgency === 'final' ? 'final ' : urgency === 'urgent' ? 'urgent ' : ''}reminder to complete your payment of $${amount.toFixed(2)} for your ${serviceType} cleaning with ${cleanerName}.\n\nPlease log in to HollaClean and pay to confirm your booking.\n\n— The HollaClean Team`
     );
   },
 
