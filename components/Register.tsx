@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import TermsModal from './TermsModal';
 import { Button, Input, Card } from './UI';
 import { storage } from '../utils/storage';
 import { User, ServiceOffer } from '../types';
@@ -66,6 +67,8 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister, onGoogleS
   const [error, setError] = useState('');
   const [passwordErrors, setPasswordErrors] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [termsModal, setTermsModal] = useState<'terms' | 'privacy' | null>(null);
 
   const totalSteps = role === 'cleaner' ? 3 : 2;
 
@@ -74,6 +77,9 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister, onGoogleS
       const saved: ServiceOffer[] = await storage.get('config:services') || [];
       if (saved.length > 0) {
         setServiceOptions(saved.map(s => s.name));
+      } else {
+        // Fallback to default services if admin hasn't configured them yet
+        setServiceOptions(['Regular Cleaning', 'Deep Cleaning', 'Move In/Out', 'Window Cleaning', 'Carpet Cleaning', 'Laundry', 'Post-Construction']);
       }
     };
     loadServices();
@@ -158,6 +164,11 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister, onGoogleS
     e.preventDefault();
 
     if (!validateStep(step)) return;
+
+    if (!agreedToTerms) {
+      setError('Please read and agree to the Terms of Service and Privacy Policy to continue.');
+      return;
+    }
 
     setIsLoading(true);
     setError('');
@@ -244,6 +255,7 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister, onGoogleS
   const gradientTo = isHomeowner ? 'to-pink-600' : 'to-orange-500';
 
   return (
+    <>
     <div className="min-h-screen flex">
       {/* Left Panel - Branding (hidden on mobile) */}
       <div className={`hidden lg:flex lg:w-2/5 bg-gradient-to-br ${gradientFrom} ${gradientTo} p-12 flex-col justify-between relative overflow-hidden`}>
@@ -253,8 +265,7 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister, onGoogleS
 
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-8">
-            <Sparkles className="w-10 h-10 text-white" />
-            <span className="text-3xl font-bold font-outfit text-white">HollaClean</span>
+            <img src="/Holla Clean Logo.png" alt="HollaClean" className="h-24 w-auto brightness-0 invert" />
           </div>
 
           {isHomeowner ? (
@@ -330,8 +341,7 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister, onGoogleS
         <div className="w-full max-w-xl">
           {/* Mobile Logo */}
           <div className="lg:hidden flex items-center justify-center gap-2 mb-6">
-            <Sparkles className={`w-8 h-8 ${isHomeowner ? 'text-purple-600' : 'text-pink-600'}`} />
-            <span className="text-2xl font-bold font-outfit animate-shine">HollaClean</span>
+            <img src="/Holla Clean Logo.png" alt="HollaClean" className="h-20 w-auto mix-blend-multiply" />
           </div>
 
           <Card className="p-6 md:p-8">
@@ -743,16 +753,32 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister, onGoogleS
                   </Button>
                 )}
 
-                <p className="text-xs text-center text-gray-500">
-                  By creating an account, you agree to our{' '}
-                  <a href="#" className={`${isHomeowner ? 'text-purple-600' : 'text-pink-600'} font-semibold hover:underline`}>
-                    Terms of Service
-                  </a>{' '}
-                  and{' '}
-                  <a href="#" className={`${isHomeowner ? 'text-purple-600' : 'text-pink-600'} font-semibold hover:underline`}>
-                    Privacy Policy
-                  </a>
-                </p>
+                <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={agreedToTerms}
+                    onChange={e => setAgreedToTerms(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 accent-purple-600 flex-shrink-0"
+                  />
+                  <span className="text-xs text-gray-500">
+                    I have read and agree to the{' '}
+                    <button
+                      type="button"
+                      onClick={() => setTermsModal('terms')}
+                      className={`${isHomeowner ? 'text-purple-600' : 'text-pink-600'} font-semibold hover:underline`}
+                    >
+                      Terms of Service
+                    </button>
+                    {' '}and{' '}
+                    <button
+                      type="button"
+                      onClick={() => setTermsModal('privacy')}
+                      className={`${isHomeowner ? 'text-purple-600' : 'text-pink-600'} font-semibold hover:underline`}
+                    >
+                      Privacy Policy
+                    </button>
+                  </span>
+                </label>
               </div>
             </form>
 
@@ -769,6 +795,11 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister, onGoogleS
         </div>
       </div>
     </div>
+
+    {termsModal && (
+      <TermsModal initialTab={termsModal} onClose={() => setTermsModal(null)} />
+    )}
+    </>
   );
 };
 

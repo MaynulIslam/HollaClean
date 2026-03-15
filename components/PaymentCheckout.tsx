@@ -147,7 +147,8 @@ const PaymentCheckout: React.FC<PaymentCheckoutProps> = ({
         homeownerId: request.homeownerId,
         homeownerEmail,
         cleanerId: mode === 'upfront' ? 'pending' : (request.cleanerId || 'pending'),
-        description: `${request.serviceType} - ${request.hours}hrs`
+        description: `${request.serviceType} - ${request.hours}hrs`,
+        commissionRate: getPlatformConfig().pricing.platformCommissionRate,
       });
 
       setClientSecret(result.clientSecret);

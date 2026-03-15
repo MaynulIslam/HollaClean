@@ -39,11 +39,66 @@ app.use((req, res, next) => {
   }
 });
 
-// Platform fee percentage (20%)
+// Platform fee percentage (20%) — can be overridden per-request via commissionRate body param
 const PLATFORM_FEE_PERCENT = parseInt(process.env.PLATFORM_FEE_PERCENT) || 20;
 
-// In-memory storage for payments (transient, OK to lose on restart)
-const payments = new Map();
+// Admin secret token for /api/admin/* routes
+const ADMIN_SECRET = process.env.ADMIN_SECRET || 'hollaclean-admin-secret';
+
+// ─── Admin auth middleware ───
+function requireAdminAuth(req, res, next) {
+  const token = req.headers['x-admin-token'];
+  if (!token || token !== ADMIN_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}
+
+// ─── Simple in-memory rate limiter for payment creation ───
+const paymentRateLimits = new Map(); // ip → { count, resetAt }
+function paymentRateLimit(req, res, next) {
+  const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+  const now = Date.now();
+  const windowMs = 60 * 1000; // 1 minute window
+  const maxRequests = 10;
+  const entry = paymentRateLimits.get(ip);
+  if (!entry || now > entry.resetAt) {
+    paymentRateLimits.set(ip, { count: 1, resetAt: now + windowMs });
+    return next();
+  }
+  if (entry.count >= maxRequests) {
+    return res.status(429).json({ error: 'Too many requests. Please wait before trying again.' });
+  }
+  entry.count++;
+  next();
+}
+
+// ─── Persistent storage for payments ───
+const PAYMENTS_FILE = path.join(__dirname, 'payments.json');
+
+function loadPayments() {
+  try {
+    if (fs.existsSync(PAYMENTS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(PAYMENTS_FILE, 'utf8'));
+      return new Map(Object.entries(data));
+    }
+  } catch (err) {
+    console.error('Failed to load payments:', err.message);
+  }
+  return new Map();
+}
+
+function savePayments(paymentsMap) {
+  try {
+    const obj = Object.fromEntries(paymentsMap);
+    fs.writeFileSync(PAYMENTS_FILE, JSON.stringify(obj, null, 2));
+  } catch (err) {
+    console.error('Failed to save payments:', err.message);
+  }
+}
+
+const payments = loadPayments();
+console.log(`Loaded ${payments.size} payment record(s) from disk`);
 const platformEarnings = { total: 0, transactions: [] };
 
 // ─── Persistent storage for connected Stripe accounts ───
@@ -100,9 +155,9 @@ app.get('/api/health', (req, res) => {
  * Create a payment intent for a cleaning job
  * Called when homeowner confirms booking
  */
-app.post('/api/payments/create-intent', async (req, res) => {
+app.post('/api/payments/create-intent', paymentRateLimit, async (req, res) => {
   try {
-    const { amount, requestId, homeownerId, homeownerEmail, cleanerId, description } = req.body;
+    const { amount, requestId, homeownerId, homeownerEmail, cleanerId, description, commissionRate } = req.body;
 
     if (!amount || !requestId) {
       return res.status(400).json({ error: 'Amount and requestId are required' });
@@ -111,11 +166,15 @@ app.post('/api/payments/create-intent', async (req, res) => {
     // Amount should be in cents for Stripe
     const amountInCents = Math.round(amount * 100);
 
-    // Calculate platform fee
-    const platformFee = Math.round(amountInCents * (PLATFORM_FEE_PERCENT / 100));
+    // Use commission rate from frontend (admin-configurable) if provided, else fall back to env/default
+    const effectiveCommissionPct = commissionRate != null
+      ? Math.round(commissionRate * 100) // commissionRate is 0.20 → 20
+      : PLATFORM_FEE_PERCENT;
+    const platformFee = Math.round(amountInCents * (effectiveCommissionPct / 100));
     const cleanerPayout = amountInCents - platformFee;
 
-    // Create payment intent
+    // Create payment intent — NO transfer_data.
+    // Transfers to cleaners are handled manually by admin via /transfer-to-cleaner.
     const paymentIntentParams = {
       amount: amountInCents,
       currency: 'cad',
@@ -131,20 +190,9 @@ app.post('/api/payments/create-intent', async (req, res) => {
       payment_method_types: ['card'],
     };
 
-    // If a real cleaner is assigned (not upfront/pending), set up transfer
-    if (cleanerId && cleanerId !== 'pending') {
-      const cleanerAccount = connectedAccounts.get(cleanerId);
-      if (cleanerAccount?.accountId) {
-        paymentIntentParams.transfer_data = {
-          destination: cleanerAccount.accountId,
-          amount: cleanerPayout, // Amount to transfer to cleaner
-        };
-      }
-    }
-
     const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams);
 
-    // Store payment info
+    // Store payment info (persisted to disk)
     payments.set(paymentIntent.id, {
       id: paymentIntent.id,
       requestId,
@@ -156,6 +204,7 @@ app.post('/api/payments/create-intent', async (req, res) => {
       status: 'pending',
       createdAt: new Date().toISOString()
     });
+    savePayments(payments);
 
     res.json({
       clientSecret: paymentIntent.client_secret,
@@ -436,9 +485,8 @@ app.get('/api/connect/balance/:cleanerId', async (req, res) => {
 /**
  * Get platform earnings summary (Admin only)
  */
-app.get('/api/admin/earnings', async (req, res) => {
+app.get('/api/admin/earnings', requireAdminAuth, async (req, res) => {
   try {
-    // In production, verify admin authentication here
 
     const allPayments = Array.from(payments.values());
     const completedPayments = allPayments.filter(p => p.status === 'succeeded');
@@ -465,7 +513,7 @@ app.get('/api/admin/earnings', async (req, res) => {
 /**
  * Get Stripe account balance (Platform's own balance)
  */
-app.get('/api/admin/balance', async (req, res) => {
+app.get('/api/admin/balance', requireAdminAuth, async (req, res) => {
   try {
     const balance = await stripe.balance.retrieve();
 
@@ -518,6 +566,7 @@ app.post('/api/webhooks/stripe',
           payment.status = 'succeeded';
           payment.completedAt = new Date().toISOString();
           payments.set(paymentIntent.id, payment);
+          savePayments(payments);
 
           // Track platform earnings
           platformEarnings.total += payment.platformFee;
@@ -538,6 +587,7 @@ app.post('/api/webhooks/stripe',
           failedRecord.status = 'failed';
           failedRecord.error = failedPayment.last_payment_error?.message;
           payments.set(failedPayment.id, failedRecord);
+          savePayments(payments);
         }
         break;
 

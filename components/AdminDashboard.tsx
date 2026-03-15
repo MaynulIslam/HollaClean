@@ -25,7 +25,7 @@ interface Props {
   isAdmin?: boolean;
 }
 
-type AdminTab = 'requests' | 'services' | 'homeowners' | 'cleaners' | 'payments' | 'payouts' | 'finance' | 'reminders' | 'settings';
+type AdminTab = 'requests' | 'services' | 'homeowners' | 'cleaners' | 'payments' | 'payouts' | 'finance' | 'reminders' | 'email' | 'settings';
 
 // Format room key like "bedroom_1" → "Bedroom 1"
 function formatRoomKey(key: string): string {
@@ -70,6 +70,15 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [editingRequest, setEditingRequest] = useState<Partial<CleaningRequest>>({});
+
+  // Email compose state
+  const [emailTo, setEmailTo] = useState('');
+  const [emailToName, setEmailToName] = useState('');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody] = useState('');
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailResult, setEmailResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [emailRecipientMode, setEmailRecipientMode] = useState<'custom' | 'all_homeowners' | 'all_cleaners' | 'all_users'>('custom');
 
   const checkAuth = () => {
     if (pass === 'admin') setAuthenticated(true);
@@ -368,7 +377,16 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
                                 {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
                               </td>
                               <td className="px-6 py-4 font-mono text-[10px] text-gray-400">{req.id.slice(-8)}</td>
-                              <td className="px-6 py-4"><Badge status={req.status} /></td>
+                              <td className="px-6 py-4">
+                                <div className="flex items-center gap-2">
+                                  <Badge status={req.status} />
+                                  {req.locationApprovalStatus === 'pending' && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full whitespace-nowrap">
+                                      <AlertCircle className="w-3 h-3" /> Location Override
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
                               <td className="px-6 py-4 font-bold text-sm text-gray-800">{req.homeownerName}</td>
                               <td className="px-6 py-4 text-sm text-gray-500">{req.cleanerName || '-'}</td>
                               <td className="px-6 py-4 text-sm text-gray-600">{req.serviceType}</td>
@@ -516,6 +534,64 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
                                       )}
                                     </div>
                                   </div>
+
+                                  {/* Location Approval Panel */}
+                                  {req.locationApprovalStatus === 'pending' && (
+                                    <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                                      <div className="flex items-start gap-3">
+                                        <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                                        <div className="flex-1">
+                                          <p className="text-sm font-bold text-amber-800">Location Override Request</p>
+                                          <p className="text-xs text-amber-700 mt-0.5">
+                                            {req.cleanerName} is {req.cleanerDistanceAtStart ? `${req.cleanerDistanceAtStart}m` : 'an unknown distance'} away from the job address and needs approval to start.
+                                          </p>
+                                          <p className="text-xs text-amber-600 mt-1">Requested: {req.locationApprovalRequestedAt ? new Date(req.locationApprovalRequestedAt).toLocaleString() : 'Unknown'}</p>
+                                        </div>
+                                        <div className="flex gap-2 flex-shrink-0">
+                                          <button
+                                            onClick={async (e) => {
+                                              e.stopPropagation();
+                                              const updated = await storage.get(`request:${req.id}`);
+                                              if (updated) {
+                                                updated.locationApprovalStatus = 'approved';
+                                                await storage.set(`request:${req.id}`, updated);
+                                                loadAll();
+                                              }
+                                            }}
+                                            className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 transition-colors flex items-center gap-1"
+                                          >
+                                            <CheckCircle className="w-3.5 h-3.5" /> Approve
+                                          </button>
+                                          <button
+                                            onClick={async (e) => {
+                                              e.stopPropagation();
+                                              const updated = await storage.get(`request:${req.id}`);
+                                              if (updated) {
+                                                updated.locationApprovalStatus = 'denied';
+                                                await storage.set(`request:${req.id}`, updated);
+                                                loadAll();
+                                              }
+                                            }}
+                                            className="px-3 py-1.5 bg-red-500 text-white text-xs font-bold rounded-lg hover:bg-red-600 transition-colors flex items-center gap-1"
+                                          >
+                                            <X className="w-3.5 h-3.5" /> Deny
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {req.locationApprovalStatus === 'approved' && (
+                                    <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-xl flex items-center gap-2 text-xs text-green-700">
+                                      <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                                      Location override approved — cleaner can start the job remotely.
+                                    </div>
+                                  )}
+                                  {req.locationApprovalStatus === 'denied' && (
+                                    <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-xs text-red-700">
+                                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                                      Location override denied — cleaner must be physically at the address.
+                                    </div>
+                                  )}
                                 </td>
                               </tr>
                             )}
@@ -655,6 +731,153 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
         return <AdminFinance />;
       case 'settings':
         return <AdminSettings />;
+      case 'email': {
+        const allUsers = [...homeowners, ...cleaners];
+        const recipientList = emailRecipientMode === 'custom' ? [] :
+          emailRecipientMode === 'all_homeowners' ? homeowners :
+          emailRecipientMode === 'all_cleaners' ? cleaners : allUsers;
+
+        const handleSendEmail = async () => {
+          setEmailResult(null);
+          if (emailRecipientMode === 'custom' && !emailTo.trim()) {
+            setEmailResult({ ok: false, msg: 'Please enter a recipient email address.' });
+            return;
+          }
+          if (!emailSubject.trim() || !emailBody.trim()) {
+            setEmailResult({ ok: false, msg: 'Subject and message are required.' });
+            return;
+          }
+          setEmailSending(true);
+
+          if (emailRecipientMode === 'custom') {
+            const ok = await sendEmail(emailTo.trim(), emailToName.trim() || emailTo.trim(), emailSubject, emailBody);
+            setEmailResult(ok ? { ok: true, msg: `Email sent to ${emailTo}` } : { ok: false, msg: 'Failed to send email. Check your EmailJS configuration.' });
+          } else {
+            let sent = 0;
+            let failed = 0;
+            for (const u of recipientList) {
+              if (u.email) {
+                const ok = await sendEmail(u.email, u.name || u.email, emailSubject, emailBody);
+                ok ? sent++ : failed++;
+              }
+            }
+            setEmailResult({ ok: failed === 0, msg: `Sent: ${sent}, Failed: ${failed}` });
+          }
+          setEmailSending(false);
+        };
+
+        return (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-3xl font-bold">Send Email</h2>
+              <p className="text-gray-500 text-sm">Compose and send emails to users directly from the admin panel.</p>
+            </div>
+
+            <Card className="p-6 space-y-6">
+              {/* Recipient Mode */}
+              <div>
+                <label className="text-xs font-black uppercase text-gray-400 tracking-wider block mb-3">Recipient</label>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {([
+                    { value: 'custom', label: 'Custom Address' },
+                    { value: 'all_homeowners', label: `All Homeowners (${homeowners.length})` },
+                    { value: 'all_cleaners', label: `All Cleaners (${cleaners.length})` },
+                    { value: 'all_users', label: `All Users (${allUsers.length})` },
+                  ] as const).map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => { setEmailRecipientMode(opt.value); setEmailResult(null); }}
+                      className={`px-4 py-2 rounded-xl text-sm font-bold border-2 transition-all ${emailRecipientMode === opt.value ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-100 text-gray-500 hover:border-gray-200'}`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                {emailRecipientMode === 'custom' ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 block mb-1">Email Address *</label>
+                      <input
+                        type="email"
+                        value={emailTo}
+                        onChange={e => setEmailTo(e.target.value)}
+                        placeholder="recipient@example.com"
+                        className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 focus:border-purple-500 outline-none transition-all text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 block mb-1">Recipient Name (optional)</label>
+                      <input
+                        type="text"
+                        value={emailToName}
+                        onChange={e => setEmailToName(e.target.value)}
+                        placeholder="John Doe"
+                        className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 focus:border-purple-500 outline-none transition-all text-sm"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-gray-50 rounded-xl px-4 py-3 text-sm text-gray-600">
+                    Will send to <span className="font-bold text-purple-700">{recipientList.length} user{recipientList.length !== 1 ? 's' : ''}</span>:{' '}
+                    {recipientList.slice(0, 5).map(u => u.name).join(', ')}{recipientList.length > 5 ? ` and ${recipientList.length - 5} more...` : ''}
+                  </div>
+                )}
+              </div>
+
+              {/* Subject */}
+              <div>
+                <label className="text-xs font-black uppercase text-gray-400 tracking-wider block mb-2">Subject *</label>
+                <input
+                  type="text"
+                  value={emailSubject}
+                  onChange={e => setEmailSubject(e.target.value)}
+                  placeholder="e.g. Important update from HollaClean"
+                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 focus:border-purple-500 outline-none transition-all text-sm"
+                />
+              </div>
+
+              {/* Body */}
+              <div>
+                <label className="text-xs font-black uppercase text-gray-400 tracking-wider block mb-2">Message *</label>
+                <textarea
+                  value={emailBody}
+                  onChange={e => setEmailBody(e.target.value)}
+                  rows={8}
+                  placeholder="Write your message here..."
+                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 focus:border-purple-500 outline-none transition-all text-sm resize-none"
+                />
+              </div>
+
+              {/* Result */}
+              {emailResult && (
+                <div className={`flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold ${emailResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                  {emailResult.ok ? <CheckCircle className="w-4 h-4 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 flex-shrink-0" />}
+                  {emailResult.msg}
+                </div>
+              )}
+
+              {/* Send Button */}
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={handleSendEmail}
+                  disabled={emailSending}
+                  className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {emailSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  {emailSending ? 'Sending...' : 'Send Email'}
+                </button>
+                <button
+                  onClick={() => { setEmailTo(''); setEmailToName(''); setEmailSubject(''); setEmailBody(''); setEmailResult(null); }}
+                  className="px-6 py-3 text-gray-500 font-bold rounded-xl hover:bg-gray-100 transition-colors text-sm"
+                >
+                  Clear
+                </button>
+              </div>
+            </Card>
+          </div>
+        );
+      }
       case 'reminders': {
         const activeLogs = reminderLogs.filter(l => !l.stoppedReason);
         const stoppedLogs = reminderLogs.filter(l => !!l.stoppedReason);
@@ -1189,6 +1412,7 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
               { id: 'payouts', label: 'Payouts', icon: Banknote },
               { id: 'finance', label: 'Stripe Finance', icon: Wallet },
               { id: 'reminders', label: 'Reminders', icon: Bell },
+              { id: 'email', label: 'Send Email', icon: Mail },
               { id: 'settings', label: 'Settings', icon: Settings }
             ].map(tab => (
               <button
@@ -1229,6 +1453,7 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
               { id: 'payouts', label: 'Payouts' },
               { id: 'finance', label: 'Stripe' },
               { id: 'reminders', label: 'Reminders' },
+              { id: 'email', label: 'Email' },
               { id: 'settings', label: 'Settings' }
           ].map(tab => (
             <button

@@ -134,8 +134,7 @@ const App: React.FC = () => {
     return (
       <div className="h-screen flex items-center justify-center bg-white">
         <div className="flex flex-col items-center gap-4">
-          <Sparkles className="w-12 h-12 text-purple-600 animate-pulse" />
-          <p className="text-purple-600 font-bold text-xl animate-pulse">HollaClean...</p>
+          <img src="/Holla Clean Logo.png" alt="HollaClean" className="h-40 w-auto animate-pulse mix-blend-multiply" />
         </div>
       </div>
     );

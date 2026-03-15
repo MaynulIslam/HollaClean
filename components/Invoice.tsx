@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { CleaningRequest, InvoiceType } from '../types';
-import { X, Printer, CheckCircle, Calendar, Clock, Sparkles, FileText, Shield } from 'lucide-react';
+import { X, Printer, CheckCircle, Calendar, Clock, FileText, Shield } from 'lucide-react';
 import { getPlatformConfig } from '../utils/config';
 
 interface InvoiceProps {
@@ -97,10 +97,7 @@ const Invoice: React.FC<InvoiceProps> = ({ request, isOpen, onClose, invoiceType
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6 md:mb-8">
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <Sparkles className="w-6 h-6 md:w-8 md:h-8 text-purple-600" />
-                <span className="text-xl md:text-2xl font-bold font-outfit bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
-                  HollaClean
-                </span>
+                <img src="/Holla Clean Logo.png" alt="HollaClean" className="h-14 w-auto mix-blend-multiply" />
               </div>
               <p className="text-xs md:text-sm text-gray-500">Ontario's Trusted Cleaning Marketplace</p>
               <p className="text-xs md:text-sm text-gray-500">support@hollaclean.ca</p>

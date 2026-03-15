@@ -97,9 +97,8 @@ const CleanerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) => 
       <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-gray-100 px-4 md:px-6 py-3">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-7 h-7 text-pink-600 animate-zoom-pulse" />
-            <div className="flex items-baseline gap-1">
-              <span className="text-xl font-bold font-outfit animate-shine">HollaClean</span>
+            <div className="flex items-center gap-2">
+              <img src="/Holla Clean Logo.png" alt="HollaClean" className="h-14 w-auto mix-blend-multiply" />
               <span className="text-xs font-bold text-pink-600 bg-pink-100 px-2 py-0.5 rounded-full">PRO</span>
             </div>
           </div>

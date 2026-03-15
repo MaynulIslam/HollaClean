@@ -316,17 +316,21 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                             </div>
                           </div>
                           <div className="flex gap-2">
-                            <button
-                              onClick={handleMessageClick}
-                              className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-600 hover:bg-blue-100 transition-colors"
-                              title="Send message to cleaner (Coming Soon)"
-                            >
-                              <MessageSquare className="w-5 h-5" />
-                            </button>
+                            {req.cleanerPhone && (
+                              <a
+                                href={`https://wa.me/${req.cleanerPhone.replace(/\D/g, '')}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-3 bg-green-50 border border-green-200 rounded-xl text-green-600 hover:bg-green-100 transition-colors"
+                                title={`WhatsApp ${req.cleanerName}`}
+                              >
+                                <MessageSquare className="w-5 h-5" />
+                              </a>
+                            )}
                             {req.cleanerPhone && (
                               <a
                                 href={`tel:${req.cleanerPhone}`}
-                                className="p-3 bg-green-50 border border-green-200 rounded-xl text-green-600 hover:bg-green-100 transition-colors"
+                                className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-600 hover:bg-blue-100 transition-colors"
                                 title={`Call ${req.cleanerName}`}
                               >
                                 <Phone className="w-5 h-5" />
@@ -445,6 +449,18 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                           >
                             <FileText className="w-4 h-4" />
                             View Invoice
+                          </Button>
+                          <Button
+                            variant="danger"
+                            onClick={() => {
+                              const subject = encodeURIComponent(`Issue with job #${req.id.slice(-6).toUpperCase()} — ${req.serviceType}`);
+                              const body = encodeURIComponent(`Hi HollaClean Support,\n\nI have an issue with my completed cleaning job.\n\nJob ID: ${req.id}\nService: ${req.serviceType}\nDate: ${new Date(req.date).toLocaleDateString('en-CA')}\nCleaner: ${req.cleanerName || 'N/A'}\n\nIssue:\n[Please describe your issue here]\n\nThank you`);
+                              window.open(`mailto:support@hollaclean.ca?subject=${subject}&body=${body}`, '_blank');
+                            }}
+                            className="text-sm"
+                          >
+                            <AlertCircle className="w-4 h-4" />
+                            Report an Issue
                           </Button>
                         </>
                       )}

@@ -107,6 +107,11 @@ export interface CleaningRequest {
   remindersSent?: number;
   lastReminderAt?: string;
 
+  // Location proximity check
+  locationApprovalStatus?: 'pending' | 'approved' | 'denied';
+  locationApprovalRequestedAt?: string;
+  cleanerDistanceAtStart?: number; // meters
+
   createdAt: string;
 }
 

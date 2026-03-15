@@ -198,11 +198,11 @@ export const ExternalNotify = {
     );
   },
 
-  /** Notify homeowner that cleaning is complete and payment released */
-  async jobCompleted(email: string, name: string, cleanerName: string, serviceType: string, amount: number) {
+  /** Notify homeowner that cleaning is complete */
+  async jobCompleted(email: string, name: string, cleanerName: string, serviceType: string, _amount: number) {
     sendPushNotification(
       'Cleaning Complete!',
-      `${cleanerName} has completed your ${serviceType}. $${amount.toFixed(2)} has been released.`,
+      `${cleanerName} has completed your ${serviceType}. Please leave a review!`,
       { tag: 'job-completed' }
     );
 
@@ -210,7 +210,7 @@ export const ExternalNotify = {
       email,
       name,
       `HollaClean: ${serviceType} Completed`,
-      `Hi ${name},\n\n${cleanerName} has completed your ${serviceType} cleaning. $${amount.toFixed(2)} has been released as payment.\n\nWe hope you're satisfied with the service! Please leave a review to help other homeowners.\n\n— The HollaClean Team`
+      `Hi ${name},\n\n${cleanerName} has completed your ${serviceType} cleaning.\n\nWe hope you're satisfied with the service! Please log in and leave a review to help other homeowners.\n\n— The HollaClean Team`
     );
   },
 

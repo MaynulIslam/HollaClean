@@ -96,8 +96,7 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) =
       <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-gray-100 px-4 md:px-6 py-3">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-7 h-7 text-purple-600 animate-zoom-pulse" />
-            <span className="text-xl font-bold font-outfit animate-shine">HollaClean</span>
+            <img src="/Holla Clean Logo.png" alt="HollaClean" className="h-14 w-auto mix-blend-multiply" />
           </div>
 
           <div className="flex items-center gap-3">
@@ -163,8 +162,31 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) =
               </Button>
             </div>
 
+            {/* Profile Incomplete Banner */}
+            {(!user.phone || !user.address) && (
+              <Card className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+                <div className="flex items-start gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
+                    <UserIcon className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-bold text-gray-900 text-sm">Complete Your Profile</h3>
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      Add your {[!user.phone && 'phone number', !user.address && 'address'].filter(Boolean).join(' and ')} so cleaners can find and contact you.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setView('profile')}
+                    className="px-4 py-2 bg-blue-500 text-white text-xs font-bold rounded-lg hover:bg-blue-600 transition-colors flex-shrink-0"
+                  >
+                    Update Profile
+                  </button>
+                </div>
+              </Card>
+            )}
+
             {/* Verification Reminder Banner */}
-            {(!user.emailVerified || !user.phoneVerified || !user.addressVerified) && (
+            {user.phone && user.address && (!user.emailVerified || !user.phoneVerified || !user.addressVerified) && (
               <Card className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200">
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">

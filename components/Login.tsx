@@ -94,8 +94,7 @@ const Login: React.FC<LoginProps> = ({ onBack, onLogin, onGoogleSignIn }) => {
 
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-8">
-            <Sparkles className="w-10 h-10 text-white" />
-            <span className="text-3xl font-bold font-outfit text-white">HollaClean</span>
+            <img src="/Holla Clean Logo.png" alt="HollaClean" className="h-24 w-auto brightness-0 invert" />
           </div>
           <h1 className="text-4xl font-bold font-outfit text-white mb-4">
             Welcome Back to Ontario's Trusted Cleaning Marketplace
@@ -132,8 +131,7 @@ const Login: React.FC<LoginProps> = ({ onBack, onLogin, onGoogleSignIn }) => {
         <div className="w-full max-w-md">
           {/* Mobile Logo */}
           <div className="lg:hidden flex items-center justify-center gap-2 mb-8">
-            <Sparkles className="w-8 h-8 text-purple-600" />
-            <span className="text-2xl font-bold font-outfit animate-shine">HollaClean</span>
+            <img src="/Holla Clean Logo.png" alt="HollaClean" className="h-20 w-auto mix-blend-multiply" />
           </div>
 
           <Card className="p-8">

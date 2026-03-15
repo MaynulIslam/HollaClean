@@ -1,5 +1,6 @@
 
 import React, { useState } from 'react';
+import TermsModal from './TermsModal';
 import { Button, Card } from './UI';
 import {
   Sparkles, Home, Briefcase, ShieldCheck, Star, Clock, DollarSign,
@@ -188,6 +189,7 @@ const Landing: React.FC<LandingProps> = ({ onAction }) => {
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
   const [activeServiceTab, setActiveServiceTab] = useState('regular');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [termsModal, setTermsModal] = useState<'terms' | 'privacy' | null>(null);
 
   // Calculate homeowner estimate
   const calculateHomeownerEstimate = () => {
@@ -245,14 +247,14 @@ const Landing: React.FC<LandingProps> = ({ onAction }) => {
   };
 
   return (
+    <>
     <div className="min-h-screen">
       {/* Navigation Bar */}
       <nav className="sticky top-0 z-50 glass-card border-b border-white/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-8 h-8 text-purple-600 animate-zoom-pulse" />
-              <span className="text-2xl font-bold font-outfit animate-shine">HollaClean</span>
+              <img src="/Holla Clean Logo.png" alt="HollaClean" className="h-14 w-auto mix-blend-multiply" />
             </div>
             <div className="hidden md:flex items-center gap-6">
               <button onClick={() => scrollToSection('services')} className="text-gray-600 hover:text-purple-600 font-medium transition-colors">Services</button>
@@ -1217,8 +1219,7 @@ const Landing: React.FC<LandingProps> = ({ onAction }) => {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
             <div>
               <div className="flex items-center gap-2 mb-4">
-                <Sparkles className="w-6 h-6 text-purple-400" />
-                <span className="text-xl font-bold font-outfit">HollaClean</span>
+                <img src="/Holla Clean Logo.png" alt="HollaClean" className="h-14 w-auto brightness-0 invert" />
               </div>
               <p className="text-gray-400 text-sm">
                 Ontario's trusted home cleaning marketplace. Connecting homeowners with verified cleaning professionals.
@@ -1257,11 +1258,11 @@ const Landing: React.FC<LandingProps> = ({ onAction }) => {
 
           <div className="border-t border-gray-800 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
             <p className="text-gray-500 text-sm">
-              © 2025 HollaClean. All rights reserved. Serving Ontario, Canada.
+              © 2026 HollaClean. All rights reserved. Serving Ontario, Canada.
             </p>
             <div className="flex items-center gap-4 text-gray-500 text-sm">
-              <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
-              <a href="#" className="hover:text-white transition-colors">Terms of Service</a>
+              <button onClick={() => setTermsModal('privacy')} className="hover:text-white transition-colors">Privacy Policy</button>
+              <button onClick={() => setTermsModal('terms')} className="hover:text-white transition-colors">Terms of Service</button>
             </div>
           </div>
         </div>
@@ -1276,6 +1277,11 @@ const Landing: React.FC<LandingProps> = ({ onAction }) => {
         <ShieldCheck className="w-6 h-6" />
       </button>
     </div>
+
+    {termsModal && (
+      <TermsModal initialTab={termsModal} onClose={() => setTermsModal(null)} />
+    )}
+    </>
   );
 };
 

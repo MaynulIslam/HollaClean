@@ -9,7 +9,7 @@
 import { getReminderConfig } from './reminderService';
 import { sendEmail } from './externalNotifications';
 
-type AdminEvent = 'new_registration' | 'job_accepted' | 'payment_completed' | 'job_completed';
+type AdminEvent = 'new_registration' | 'job_accepted' | 'payment_completed' | 'job_completed' | 'location_approval_request';
 
 interface EventDetails {
   userName?: string;
@@ -23,6 +23,8 @@ interface EventDetails {
   payoutAmount?: number;
   taxAmount?: number;
   taxRate?: number;
+  distance?: number;
+  jobAddress?: string;
 }
 
 const EVENT_CONFIG: Record<AdminEvent, { configKey: keyof Pick<Awaited<ReturnType<typeof getReminderConfig>>, 'adminNotifyOnRegistration' | 'adminNotifyOnPayment' | 'adminNotifyOnCompletion'>; subject: (d: EventDetails) => string; body: (d: EventDetails) => string }> = {
@@ -40,6 +42,11 @@ const EVENT_CONFIG: Record<AdminEvent, { configKey: keyof Pick<Awaited<ReturnTyp
     configKey: 'adminNotifyOnPayment',
     subject: (d) => `Payment Received: $${d.amount?.toFixed(2)} for ${d.serviceType}`,
     body: (d) => `A payment has been received.\n\nService: ${d.serviceType}\nAmount: $${d.amount?.toFixed(2)}\nHomeowner: ${d.homeownerName}\nCleaner: ${d.cleanerName}\nRequest ID: ${d.requestId}`,
+  },
+  location_approval_request: {
+    configKey: 'adminNotifyOnCompletion',
+    subject: (d) => `Location Override Needed: ${d.cleanerName} — ${d.serviceType}`,
+    body: (d) => `A cleaner is trying to start a job but is too far from the job location.\n\nCleaner: ${d.cleanerName}\nService: ${d.serviceType}\nHomeowner: ${d.homeownerName}\nJob Address: ${d.jobAddress}\nCleaner Distance: ${d.distance}m away\nRequest ID: ${d.requestId}\n\nPlease log in to the admin panel and approve or deny the location override.\nAdmin Panel → All Requests tab`,
   },
   job_completed: {
     configKey: 'adminNotifyOnCompletion',

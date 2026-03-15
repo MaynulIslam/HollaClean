@@ -183,12 +183,12 @@ export const NotificationHelpers = {
     );
   },
 
-  async paymentReleased(homeownerId: string, cleanerName: string, serviceType: string, amount: number) {
+  async paymentReleased(homeownerId: string, cleanerName: string, serviceType: string, _amount: number) {
     return createNotification(
       homeownerId,
       'success',
-      'Payment Released',
-      `$${amount.toFixed(2)} has been released to ${cleanerName} for completing your ${serviceType}.`,
+      'Cleaning Complete!',
+      `${cleanerName} has completed your ${serviceType}. Please leave a review!`,
       '/my-requests'
     );
   },

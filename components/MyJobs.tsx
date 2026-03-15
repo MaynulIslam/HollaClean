@@ -13,7 +13,7 @@ import {
   MessageCircle, MapPin, Clock, CheckCircle, PlayCircle, AlertCircle,
   Phone, DollarSign, Calendar, User, Star, ChevronDown, ChevronUp,
   Navigation, XCircle, RefreshCw, Sparkles, Image as ImageIcon, CreditCard, Mail, X,
-  LocateFixed, Loader2
+  LocateFixed, Loader2, ShieldAlert
 } from 'lucide-react';
 import { getPlatformConfig } from '../utils/config';
 import { getCleanerPosition, checkProximity, formatDistance, Coordinates } from '../utils/geolocation';
@@ -145,13 +145,41 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
     setProximityError(null);
 
     try {
+      // If admin already approved location override, skip proximity check
+      const jobData = await storage.get(`request:${jobId}`);
+      if (jobData?.locationApprovalStatus === 'approved') {
+        await updateStatus(jobId, 'in_progress');
+        setStartingJobId(null);
+        return;
+      }
+
       const cleanerPos = await getCleanerPosition();
       const maxDist = getPlatformConfig().geolocation.maxAcceptDistance;
       const result = await checkProximity(cleanerPos, jobAddress, maxDist);
 
       if (result.distance !== null && result.distance > maxDist) {
-        setProximityError(`You are ${formatDistance(result.distance)} away. You must be within ${maxDist}m of the job address to start cleaning.`);
+        // Cleaner is too far — request admin approval instead of hard-blocking
+        const req = await storage.get(`request:${jobId}`);
+        if (req) {
+          req.locationApprovalStatus = 'pending';
+          req.locationApprovalRequestedAt = new Date().toISOString();
+          req.cleanerDistanceAtStart = result.distance;
+          await storage.set(`request:${jobId}`, req);
+        }
+
+        // Notify admin
+        notifyAdmin('location_approval_request', {
+          cleanerName: req?.cleanerName || 'Unknown cleaner',
+          serviceType: req?.serviceType || 'Cleaning',
+          homeownerName: req?.homeownerName || 'Unknown homeowner',
+          jobAddress,
+          distance: result.distance,
+          requestId: jobId,
+        });
+
+        setProximityError(`You are ${formatDistance(result.distance)} away from the job. An admin approval request has been sent. You can start once an admin approves your location override.`);
         setStartingJobId(null);
+        loadJobs();
         return;
       }
 
@@ -179,8 +207,16 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
   };
 
   const handleCancel = async (id: string) => {
+    const req = await storage.get(`request:${id}`);
+    if (!req) return;
+
+    // Block cancellation if payment has already been collected
+    if (req.paymentStatus === 'held' || req.paymentStatus === 'paid' || req.status === 'in_progress') {
+      alert('You cannot release this job because payment has already been collected. Please contact support if you need to cancel.');
+      return;
+    }
+
     if (window.confirm("Release this job back to the marketplace? The homeowner will need to find another cleaner.")) {
-      const req = await storage.get(`request:${id}`);
       req.status = 'open';
       req.acceptedBy = null;
       req.cleanerName = null;
@@ -232,14 +268,24 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
       {/* Header Stats for History */}
       {type === 'history' && jobs.length > 0 && (
         <Card className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 border-green-200">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center">
                 <DollarSign className="w-6 h-6 text-green-600" />
               </div>
               <div>
                 <p className="text-sm text-green-700 font-medium">{jobs.length} Completed Jobs</p>
-                <p className="text-2xl font-bold text-green-600">${totalEarnings.toFixed(2)} earned</p>
+                <p className="text-2xl font-bold text-green-600">${totalEarnings.toFixed(2)} total</p>
+              </div>
+            </div>
+            <div className="flex gap-4 text-sm">
+              <div className="text-center">
+                <p className="text-green-600 font-bold">${jobs.filter(j => j.payoutStatus === 'disbursed').reduce((s, j) => s + (Number(j.cleanerPayout) || 0), 0).toFixed(2)}</p>
+                <p className="text-gray-500">Paid Out</p>
+              </div>
+              <div className="text-center">
+                <p className="text-amber-500 font-bold">${jobs.filter(j => j.payoutStatus !== 'disbursed').reduce((s, j) => s + (Number(j.cleanerPayout) || 0), 0).toFixed(2)}</p>
+                <p className="text-gray-500">Pending</p>
               </div>
             </div>
           </div>
@@ -326,11 +372,20 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
                   <div className="flex items-center gap-4 flex-shrink-0">
                     <div className="text-right">
                       <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">
-                        {type === 'history' ? 'Earned' : 'You\'ll Earn'}
+                        {type === 'history'
+                          ? (job.payoutStatus === 'disbursed' ? 'Paid Out' : 'Pending Payout')
+                          : "You'll Earn"}
                       </p>
-                      <p className={`text-2xl font-bold ${type === 'history' ? 'text-green-600' : 'text-pink-600'}`}>
+                      <p className={`text-2xl font-bold ${
+                        type === 'history'
+                          ? (job.payoutStatus === 'disbursed' ? 'text-green-600' : 'text-amber-500')
+                          : 'text-pink-600'
+                      }`}>
                         ${(Number(job.cleanerPayout) || 0).toFixed(2)}
                       </p>
+                      {type === 'history' && job.payoutStatus !== 'disbursed' && (
+                        <p className="text-xs text-amber-500 mt-0.5">Awaiting admin release</p>
+                      )}
                     </div>
                     <button
                       onClick={() => setExpandedId(isExpanded ? null : job.id)}
@@ -346,43 +401,78 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
                   <div className="flex flex-wrap gap-3 mt-4 pt-4 border-t border-gray-100">
                     {job.status === 'accepted' ? (
                       <div className="flex flex-col gap-2 flex-1">
-                        <div className="flex flex-wrap gap-3">
-                          <Button
-                            onClick={() => handleStartCleaning(job.id, job.address)}
-                            disabled={startingJobId === job.id}
-                            className="flex-1 md:flex-none bg-gradient-to-r from-purple-600 to-pink-600"
-                          >
-                            {startingJobId === job.id ? (
-                              <>
-                                <Loader2 className="w-5 h-5 animate-spin" />
-                                Checking Location...
-                              </>
-                            ) : (
-                              <>
-                                <PlayCircle className="w-5 h-5" />
-                                Start Cleaning
-                              </>
-                            )}
-                          </Button>
-                          <Button
-                            variant="danger"
-                            onClick={() => handleCancel(job.id)}
-                            className="flex-1 md:flex-none"
-                          >
-                            <XCircle className="w-5 h-5" />
-                            Release Job
-                          </Button>
-                        </div>
-                        {proximityError && startingJobId === null && (
+                        {job.locationApprovalStatus === 'denied' ? (
                           <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm">
-                            <LocateFixed className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                            <p className="text-red-700">{proximityError}</p>
+                            <ShieldAlert className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                            <p className="text-red-700">Admin denied your location override request. You must be physically present at the job address to start.</p>
                           </div>
+                        ) : job.locationApprovalStatus === 'pending' ? (
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+                              <ShieldAlert className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                              <div>
+                                <p className="text-amber-800 font-semibold">Waiting for admin location approval</p>
+                                <p className="text-amber-600 text-xs mt-0.5">You were {job.cleanerDistanceAtStart ? formatDistance(job.cleanerDistanceAtStart) : 'too far'} from the job. An admin must approve before you can start.</p>
+                              </div>
+                            </div>
+                            <Button
+                              variant="danger"
+                              onClick={() => handleCancel(job.id)}
+                              className="flex-1 md:flex-none"
+                            >
+                              <XCircle className="w-5 h-5" />
+                              Release Job
+                            </Button>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex flex-wrap gap-3">
+                              <Button
+                                onClick={() => handleStartCleaning(job.id, job.address)}
+                                disabled={startingJobId === job.id}
+                                className="flex-1 md:flex-none bg-gradient-to-r from-purple-600 to-pink-600"
+                              >
+                                {startingJobId === job.id ? (
+                                  <>
+                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                    Checking Location...
+                                  </>
+                                ) : (
+                                  <>
+                                    <PlayCircle className="w-5 h-5" />
+                                    {job.locationApprovalStatus === 'approved' ? 'Start Cleaning (Approved)' : 'Start Cleaning'}
+                                  </>
+                                )}
+                              </Button>
+                              <Button
+                                variant="danger"
+                                onClick={() => handleCancel(job.id)}
+                                className="flex-1 md:flex-none"
+                              >
+                                <XCircle className="w-5 h-5" />
+                                Release Job
+                              </Button>
+                            </div>
+                            {proximityError && startingJobId === null && (
+                              <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm">
+                                <LocateFixed className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                                <p className="text-red-700">{proximityError}</p>
+                              </div>
+                            )}
+                            {job.locationApprovalStatus === 'approved' && (
+                              <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
+                                <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                                Admin approved your location override. You can start the job.
+                              </div>
+                            )}
+                            {!job.locationApprovalStatus && (
+                              <p className="text-xs text-gray-400 flex items-center gap-1">
+                                <LocateFixed className="w-3 h-3" />
+                                You must be within {getPlatformConfig().geolocation.maxAcceptDistance}m of the address to start
+                              </p>
+                            )}
+                          </>
                         )}
-                        <p className="text-xs text-gray-400 flex items-center gap-1">
-                          <LocateFixed className="w-3 h-3" />
-                          You must be within {getPlatformConfig().geolocation.maxAcceptDistance}m of the address to start
-                        </p>
                       </div>
                     ) : job.status === 'in_progress' ? (
                       <div className="flex flex-col sm:flex-row gap-3 flex-1">
@@ -424,16 +514,20 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <button
-                          onClick={handleMessageClick}
-                          className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-600 hover:bg-blue-100 transition-colors"
-                          title="Send message to homeowner (Coming Soon)"
-                        >
-                          <MessageCircle className="w-5 h-5" />
-                        </button>
+                        {job.homeownerPhone && (
+                          <a
+                            href={`https://wa.me/${job.homeownerPhone.replace(/\D/g, '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-3 bg-green-50 border border-green-200 rounded-xl text-green-600 hover:bg-green-100 transition-colors"
+                            title={`WhatsApp ${job.homeownerName}`}
+                          >
+                            <MessageCircle className="w-5 h-5" />
+                          </a>
+                        )}
                         <a
                           href={`tel:${job.homeownerPhone}`}
-                          className="p-3 bg-green-50 border border-green-200 rounded-xl text-green-600 hover:bg-green-100 transition-colors"
+                          className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-600 hover:bg-blue-100 transition-colors"
                           title={`Call ${job.homeownerName}`}
                         >
                           <Phone className="w-5 h-5" />

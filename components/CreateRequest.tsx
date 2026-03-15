@@ -532,7 +532,7 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
                 Schedule Your Cleaning
               </h3>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium text-gray-700 ml-1 block mb-1">Preferred Date</label>
                   <input
@@ -561,18 +561,6 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
                     <option value="15:00">3:00 PM</option>
                     <option value="16:00">4:00 PM</option>
                     <option value="17:00">5:00 PM</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700 ml-1 block mb-1">Estimated Hours</label>
-                  <select
-                    className="w-full px-4 py-3 rounded-xl border-2 border-gray-100 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none transition-all"
-                    value={formData.hours}
-                    onChange={(e) => setFormData({ ...formData, hours: Number(e.target.value) })}
-                  >
-                    {[2, 3, 4, 5, 6, 8, 10].map(h => (
-                      <option key={h} value={h}>{h} Hours</option>
-                    ))}
                   </select>
                 </div>
               </div>

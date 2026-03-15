@@ -30,6 +30,7 @@ export async function createPaymentIntent(params: {
   homeownerEmail?: string;
   cleanerId: string;
   description?: string;
+  commissionRate?: number; // admin-configurable, e.g. 0.20 for 20%
 }): Promise<CreatePaymentIntentResponse> {
   const response = await fetch(`${API_BASE}/payments/create-intent`, {
     method: 'POST',
@@ -189,11 +190,15 @@ export interface AdminEarnings {
   }>;
 }
 
+// Admin secret — in production this should come from an env var or secure config
+const ADMIN_SECRET = 'hollaclean-admin-secret';
+const adminHeaders = { 'Content-Type': 'application/json', 'x-admin-token': ADMIN_SECRET };
+
 /**
  * Get platform earnings summary (Admin only)
  */
 export async function getAdminEarnings(): Promise<AdminEarnings> {
-  const response = await fetch(`${API_BASE}/admin/earnings`);
+  const response = await fetch(`${API_BASE}/admin/earnings`, { headers: adminHeaders });
   if (!response.ok) throw new Error('Failed to get admin earnings');
   return response.json();
 }
@@ -207,7 +212,7 @@ export async function getAdminBalance(): Promise<{
   currency: string;
   message: string;
 }> {
-  const response = await fetch(`${API_BASE}/admin/balance`);
+  const response = await fetch(`${API_BASE}/admin/balance`, { headers: adminHeaders });
   if (!response.ok) throw new Error('Failed to get admin balance');
   return response.json();
 }

@@ -232,8 +232,7 @@ const ProfileCompletion: React.FC<ProfileCompletionProps> = ({ googleUser, onCom
             <span className="text-sm font-medium">Back</span>
           </button>
           <div className="flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-purple-600" />
-            <span className="text-lg font-bold font-outfit">HollaClean</span>
+            <img src="/Holla Clean Logo.png" alt="HollaClean" className="h-14 w-auto mix-blend-multiply" />
           </div>
           <div className="w-16" />
         </div>
