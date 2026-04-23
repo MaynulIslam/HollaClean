@@ -2,6 +2,8 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
 
+const IS_DEV = import.meta.env.DEV;
+
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
@@ -64,7 +66,7 @@ class ErrorBoundary extends Component<Props, State> {
               We're sorry, but something unexpected happened. Please try refreshing the page or going back to the home page.
             </p>
 
-            {process.env.NODE_ENV === 'development' && this.state.error && (
+            {IS_DEV && this.state.error && (
               <div className="bg-gray-100 rounded-xl p-4 mb-6 text-left overflow-auto max-h-40">
                 <p className="text-xs font-mono text-red-600 break-all">
                   {this.state.error.toString()}
