@@ -11,7 +11,7 @@ export const CONFIG = {
   app: {
     name: 'HollaClean',
     version: '1.0.0',
-    environment: 'development', // 'development' | 'staging' | 'production'
+    environment: import.meta.env.MODE ?? 'development',
     region: 'Ontario, Canada',
   },
 
@@ -116,7 +116,7 @@ export const CONFIG = {
 
   // Server configuration
   server: {
-    apiUrl: 'http://localhost:3001/api',
+    apiUrl: (process.env.VITE_API_URL || process.env.API_URL || 'http://localhost:3001') + '/api',
     // Stripe publishable key - set this in production
     stripePublishableKey: (typeof process !== 'undefined' && process.env?.STRIPE_PUBLISHABLE_KEY) || '',
   },
@@ -209,9 +209,10 @@ export function savePlatformConfig(config: PlatformConfig): void {
 
 // Helper function to calculate payment breakdown
 export function calculatePayment(hourlyRate: number, hours: number) {
+  const platformConfig = getPlatformConfig();
   const subtotal = hourlyRate * hours;
-  const platformCommission = subtotal * CONFIG.pricing.platformCommissionRate;
-  const cleanerPayout = subtotal * CONFIG.pricing.cleanerPayoutRate;
+  const platformCommission = subtotal * platformConfig.pricing.platformCommissionRate;
+  const cleanerPayout = subtotal * platformConfig.pricing.cleanerPayoutRate;
 
   return {
     subtotal: Math.round(subtotal * 100) / 100,

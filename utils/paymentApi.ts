@@ -4,7 +4,7 @@
  * Handles all communication with the HollaClean payment server
  */
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = (process.env.VITE_API_URL || process.env.API_URL || 'http://localhost:3001') + '/api';
 
 // ==================== PAYMENT INTENTS ====================
 
@@ -190,15 +190,37 @@ export interface AdminEarnings {
   }>;
 }
 
-// Admin secret — in production this should come from an env var or secure config
-const ADMIN_SECRET = 'hollaclean-admin-secret';
-const adminHeaders = { 'Content-Type': 'application/json', 'x-admin-token': ADMIN_SECRET };
+// ─── Admin token cache (short-lived HMAC tokens from server) ───
+let _cachedAdminToken: string | null = null;
+let _cachedAdminTokenExpiry = 0;
+
+async function getAdminToken(): Promise<string> {
+  if (_cachedAdminToken && Date.now() < _cachedAdminTokenExpiry - 30_000) {
+    return _cachedAdminToken;
+  }
+  const secret = process.env.VITE_ADMIN_SECRET || process.env.ADMIN_SECRET || '';
+  const res = await fetch(`${API_BASE}/auth/admin-token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret }),
+  });
+  if (!res.ok) throw new Error('Admin authentication failed');
+  const { token, expiresIn } = await res.json();
+  _cachedAdminToken = token;
+  _cachedAdminTokenExpiry = Date.now() + expiresIn;
+  return token;
+}
+
+async function adminHeaders() {
+  const token = await getAdminToken();
+  return { 'Content-Type': 'application/json', 'x-admin-token': token };
+}
 
 /**
  * Get platform earnings summary (Admin only)
  */
 export async function getAdminEarnings(): Promise<AdminEarnings> {
-  const response = await fetch(`${API_BASE}/admin/earnings`, { headers: adminHeaders });
+  const response = await fetch(`${API_BASE}/admin/earnings`, { headers: await adminHeaders() });
   if (!response.ok) throw new Error('Failed to get admin earnings');
   return response.json();
 }
@@ -212,7 +234,7 @@ export async function getAdminBalance(): Promise<{
   currency: string;
   message: string;
 }> {
-  const response = await fetch(`${API_BASE}/admin/balance`, { headers: adminHeaders });
+  const response = await fetch(`${API_BASE}/admin/balance`, { headers: await adminHeaders() });
   if (!response.ok) throw new Error('Failed to get admin balance');
   return response.json();
 }

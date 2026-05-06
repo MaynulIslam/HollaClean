@@ -14,20 +14,34 @@
  * - Implement 2FA
  */
 
-// Simple hash function for client-side password hashing
-// WARNING: This is NOT cryptographically secure for production
-// In production, passwords should be hashed on the server with bcrypt
+const AUTH_API = (process.env.VITE_API_URL || process.env.API_URL || 'http://localhost:3001') + '/api/auth';
+
+// Hash a password via the server (bcrypt, 12 rounds)
 export async function hashPassword(password: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + 'hollaclean_salt_v1'); // Add a static salt
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  const res = await fetch(`${AUTH_API}/hash-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  if (!res.ok) throw new Error('Failed to hash password');
+  const { hash } = await res.json();
+  return hash;
 }
 
+// Verify a password against a bcrypt hash via the server
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
-  const inputHash = await hashPassword(password);
-  return inputHash === hash;
+  try {
+    const res = await fetch(`${AUTH_API}/verify-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, hash }),
+    });
+    if (!res.ok) return false;
+    const { valid } = await res.json();
+    return valid;
+  } catch {
+    return false;
+  }
 }
 
 // Session management

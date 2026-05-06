@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Button, Input, Card } from './UI';
 import { storage } from '../utils/storage';
 import { User } from '../types';
-import { hashPassword, createSession } from '../utils/auth';
+import { verifyPassword, createSession } from '../utils/auth';
 import {
   ArrowLeft, Lock, Mail, Eye, EyeOff, Sparkles,
   ShieldCheck, CheckCircle, Home, Briefcase
@@ -64,9 +64,7 @@ const Login: React.FC<LoginProps> = ({ onBack, onLogin, onGoogleSignIn }) => {
         return;
       }
 
-      // Check password - support both hashed and legacy plain text passwords
-      const hashedInput = await hashPassword(password);
-      const isValidPassword = foundUser.password === hashedInput || foundUser.password === password;
+      const isValidPassword = await verifyPassword(password, foundUser.password ?? '');
 
       if (isValidPassword) {
         // Create a session

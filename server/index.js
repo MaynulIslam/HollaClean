@@ -13,22 +13,25 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
 const app = express();
 
 // Stripe initialization
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-// CORS configuration
-app.use(cors({
-  origin: [
-    process.env.FRONTEND_URL || 'http://localhost:3000',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://0.0.0.0:3000',
-  ],
-  credentials: true
-}));
+// CORS configuration — dev always allows localhost; prod locks to FRONTEND_URL
+const allowedOrigins = process.env.NODE_ENV === 'production'
+  ? [process.env.FRONTEND_URL].filter(Boolean)
+  : [
+      process.env.FRONTEND_URL || 'http://localhost:3000',
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'http://0.0.0.0:3000',
+    ];
+
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 
 // Parse JSON for most routes
 app.use((req, res, next) => {
@@ -42,13 +45,31 @@ app.use((req, res, next) => {
 // Platform fee percentage (20%) — can be overridden per-request via commissionRate body param
 const PLATFORM_FEE_PERCENT = parseInt(process.env.PLATFORM_FEE_PERCENT) || 20;
 
-// Admin secret token for /api/admin/* routes
-const ADMIN_SECRET = process.env.ADMIN_SECRET || 'hollaclean-admin-secret';
+// Admin HMAC secret — used to sign short-lived admin tokens
+const ADMIN_HMAC_SECRET = process.env.ADMIN_SECRET || 'hollaclean-admin-secret-dev';
+const ADMIN_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+function generateAdminToken() {
+  const expires = Date.now() + ADMIN_TOKEN_TTL_MS;
+  const payload = `${expires}`;
+  const sig = crypto.createHmac('sha256', ADMIN_HMAC_SECRET).update(payload).digest('hex');
+  return `${expires}.${sig}`;
+}
+
+function verifyAdminToken(token) {
+  if (!token) return false;
+  const [expiresStr, sig] = token.split('.');
+  if (!expiresStr || !sig) return false;
+  const expires = parseInt(expiresStr, 10);
+  if (isNaN(expires) || Date.now() > expires) return false;
+  const expected = crypto.createHmac('sha256', ADMIN_HMAC_SECRET).update(expiresStr).digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'));
+}
 
 // ─── Admin auth middleware ───
 function requireAdminAuth(req, res, next) {
   const token = req.headers['x-admin-token'];
-  if (!token || token !== ADMIN_SECRET) {
+  if (!verifyAdminToken(token)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   next();
@@ -149,6 +170,92 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// ==================== AUTH (Password hashing via bcrypt) ====================
+
+const BCRYPT_ROUNDS = 12;
+
+// Hash a password — called from frontend on register
+app.post('/api/auth/hash-password', paymentRateLimit, async (req, res) => {
+  const { password } = req.body;
+  if (!password || typeof password !== 'string' || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+  const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  res.json({ hash });
+});
+
+// Verify a password against a stored hash — called from frontend on login
+app.post('/api/auth/verify-password', paymentRateLimit, async (req, res) => {
+  const { password, hash } = req.body;
+  if (!password || !hash) {
+    return res.status(400).json({ error: 'password and hash are required' });
+  }
+  const valid = await bcrypt.compare(password, hash);
+  res.json({ valid });
+});
+
+// ==================== ADMIN TOKEN ====================
+
+// Issue a short-lived HMAC admin token when the static secret matches
+app.post('/api/auth/admin-token', (req, res) => {
+  const { secret } = req.body;
+  if (!secret || secret !== ADMIN_HMAC_SECRET) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+  res.json({ token: generateAdminToken(), expiresIn: ADMIN_TOKEN_TTL_MS });
+});
+
+// ==================== OTP ====================
+
+// In-memory OTP store: { [otpId]: { code, expiresAt, target, verified } }
+const otpStore = new Map();
+
+app.post('/api/otp/send', paymentRateLimit, (req, res) => {
+  const { target, type } = req.body; // target = email or phone
+  if (!target || !['email', 'phone'].includes(type)) {
+    return res.status(400).json({ error: 'target and type (email|phone) are required' });
+  }
+  const code = String(Math.floor(100000 + Math.random() * 900000)); // 6-digit
+  const otpId = uuidv4();
+  otpStore.set(otpId, {
+    code,
+    target,
+    type,
+    expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
+    attempts: 0,
+  });
+
+  // In production: send `code` via EmailJS/Twilio. For now log in dev only.
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`[OTP DEV] ${type} OTP for ${target}: ${code}`);
+  }
+
+  res.json({ otpId });
+});
+
+app.post('/api/otp/verify', (req, res) => {
+  const { otpId, code } = req.body;
+  if (!otpId || !code) {
+    return res.status(400).json({ error: 'otpId and code are required' });
+  }
+  const entry = otpStore.get(otpId);
+  if (!entry) return res.status(404).json({ error: 'OTP not found or already used' });
+  if (Date.now() > entry.expiresAt) {
+    otpStore.delete(otpId);
+    return res.status(410).json({ error: 'OTP expired' });
+  }
+  entry.attempts++;
+  if (entry.attempts > 5) {
+    otpStore.delete(otpId);
+    return res.status(429).json({ error: 'Too many attempts. Request a new code.' });
+  }
+  if (code !== entry.code) {
+    return res.status(400).json({ valid: false, error: 'Invalid code' });
+  }
+  otpStore.delete(otpId); // one-time use
+  res.json({ valid: true });
+});
+
 // ==================== PAYMENT INTENTS (Homeowner pays) ====================
 
 /**
@@ -166,9 +273,11 @@ app.post('/api/payments/create-intent', paymentRateLimit, async (req, res) => {
     // Amount should be in cents for Stripe
     const amountInCents = Math.round(amount * 100);
 
-    // Use commission rate from frontend (admin-configurable) if provided, else fall back to env/default
+    // Use commission rate from frontend if provided, clamped to [5, 50]% to prevent abuse
+    const MIN_COMMISSION = 5;
+    const MAX_COMMISSION = 50;
     const effectiveCommissionPct = commissionRate != null
-      ? Math.round(commissionRate * 100) // commissionRate is 0.20 → 20
+      ? Math.min(MAX_COMMISSION, Math.max(MIN_COMMISSION, Math.round(commissionRate * 100)))
       : PLATFORM_FEE_PERCENT;
     const platformFee = Math.round(amountInCents * (effectiveCommissionPct / 100));
     const cleanerPayout = amountInCents - platformFee;
@@ -190,7 +299,9 @@ app.post('/api/payments/create-intent', paymentRateLimit, async (req, res) => {
       payment_method_types: ['card'],
     };
 
-    const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams);
+    // Idempotency key scoped to requestId — safe to retry, prevents double-charges
+    const idempotencyKey = `intent-${requestId}`;
+    const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams, { idempotencyKey });
 
     // Store payment info (persisted to disk)
     payments.set(paymentIntent.id, {
@@ -245,12 +356,27 @@ app.get('/api/payments/:paymentIntentId', async (req, res) => {
  * Transfer cleaner's payout after job completion
  * Called when cleaner marks a job as complete
  */
-app.post('/api/payments/transfer-to-cleaner', async (req, res) => {
+app.post('/api/payments/transfer-to-cleaner', requireAdminAuth, async (req, res) => {
   try {
     const { paymentIntentId, cleanerId, amount } = req.body;
 
-    if (!cleanerId || !amount) {
-      return res.status(400).json({ error: 'cleanerId and amount are required' });
+    if (!paymentIntentId || !cleanerId || !amount) {
+      return res.status(400).json({ error: 'paymentIntentId, cleanerId and amount are required' });
+    }
+
+    // Validate amount against our stored record — prevents admin UI from sending wrong amounts
+    const storedPayment = payments.get(paymentIntentId);
+    if (!storedPayment) {
+      return res.status(404).json({ error: 'Payment record not found' });
+    }
+    if (storedPayment.status !== 'succeeded') {
+      return res.status(400).json({ error: 'Payment has not been completed yet' });
+    }
+    const tolerance = 0.01; // allow 1 cent rounding difference
+    if (Math.abs(storedPayment.cleanerPayout - amount) > tolerance) {
+      return res.status(400).json({
+        error: `Transfer amount $${amount} does not match stored payout $${storedPayment.cleanerPayout}`
+      });
     }
 
     const accountInfo = connectedAccounts.get(cleanerId);

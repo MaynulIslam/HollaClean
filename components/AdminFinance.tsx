@@ -36,37 +36,7 @@ const AdminFinance: React.FC<AdminFinanceProps> = ({ onBack }) => {
       setEarnings(earningsData);
       setBalance(balanceData);
     } catch (err: any) {
-      console.error('Failed to load finance data:', err);
-      // Demo mode fallback
-      setEarnings({
-        summary: {
-          totalRevenue: '1250.00',
-          platformEarnings: '250.00',
-          cleanerPayouts: '1000.00',
-          totalTransactions: 12
-        },
-        recentTransactions: [
-          {
-            id: 'demo1',
-            requestId: 'req1',
-            amount: 140,
-            platformFee: 28,
-            cleanerPayout: 112,
-            status: 'succeeded',
-            completedAt: new Date().toISOString()
-          },
-          {
-            id: 'demo2',
-            requestId: 'req2',
-            amount: 105,
-            platformFee: 21,
-            cleanerPayout: 84,
-            status: 'succeeded',
-            completedAt: new Date(Date.now() - 86400000).toISOString()
-          }
-        ]
-      });
-      setBalance({ available: 250, pending: 45 });
+      setError(err.message || 'Failed to connect to payment server. Ensure the server is running.');
     } finally {
       setLoading(false);
     }
@@ -82,6 +52,29 @@ const AdminFinance: React.FC<AdminFinanceProps> = ({ onBack }) => {
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
           <p className="text-gray-600">Loading financial data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="flex flex-col items-center gap-4 max-w-sm text-center">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
+            <AlertCircle className="w-8 h-8 text-red-600" />
+          </div>
+          <div>
+            <p className="font-semibold text-gray-900 mb-1">Could not load finance data</p>
+            <p className="text-sm text-gray-500">{error}</p>
+          </div>
+          <button
+            onClick={loadData}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors text-sm font-semibold"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Retry
+          </button>
         </div>
       </div>
     );

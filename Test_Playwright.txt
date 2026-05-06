@@ -1,0 +1,39 @@
+Playwright Test Coverage
+
+  ~144 tests across 10 spec files, run serially on Chromium.
+
+  ---
+  Files & What They Cover
+
+  ┌────────────────────────────────┬───────┬─────────────────────────────────────────────────────────────────────────────────────────┐   
+  │              File              │ Tests │                                      What's Tested                                      │   
+  ├────────────────────────────────┼───────┼─────────────────────────────────────────────────────────────────────────────────────────┤   
+  │ 01-landing.spec.ts             │ 7     │ Branding, nav buttons, routing to login/register/admin                                  │   
+  ├────────────────────────────────┼───────┼─────────────────────────────────────────────────────────────────────────────────────────┤   
+  │ 02-auth.spec.ts                │ 16    │ Registration (homeowner + cleaner), login, session persistence, logout                  │   
+  ├────────────────────────────────┼───────┼─────────────────────────────────────────────────────────────────────────────────────────┤   
+  │ 03-homeowner-dashboard.spec.ts │ 26    │ Overview, tabs, create request form, my requests, profile, verification flow            │   
+  ├────────────────────────────────┼───────┼─────────────────────────────────────────────────────────────────────────────────────────┤   
+  │ 04-cleaner-dashboard.spec.ts   │ 19    │ Overview, tabs, jobs feed, my jobs, history, profile, availability toggle               │   
+  ├────────────────────────────────┼───────┼─────────────────────────────────────────────────────────────────────────────────────────┤   
+  │ 05-admin-dashboard.spec.ts     │ 26    │ Admin login, all 10 tabs, request/user/service management, settings, email              │   
+  ├────────────────────────────────┼───────┼─────────────────────────────────────────────────────────────────────────────────────────┤   
+  │ 06-payment-flow.spec.ts        │ 10    │ Payment prompt, breakdown, card input, demo payment, cleaner complete, invoice, reviews │   
+  ├────────────────────────────────┼───────┼─────────────────────────────────────────────────────────────────────────────────────────┤   
+  │ 07-notifications.spec.ts       │ 3     │ Notification bell visibility + panel open for both roles                                │   
+  ├────────────────────────────────┼───────┼─────────────────────────────────────────────────────────────────────────────────────────┤   
+  │ 08-request-lifecycle.spec.ts   │ 11    │ Full request lifecycle (submit → accept → pay → complete → review), status badges       │   
+  ├────────────────────────────────┼───────┼─────────────────────────────────────────────────────────────────────────────────────────┤   
+  │ 09-profile-completion.spec.ts  │ 8     │ Google user profile completion, password mismatch, duplicate email, Terms modal         │   
+
+  With headed browser (watch it run):
+  npx playwright test --headed
+
+  Open HTML report after a run:
+  npx playwright show-report
+
+  UI mode (interactive test runner):
+  npx playwright test --ui
+
+  ▎ The config auto-starts npm run dev on localhost:3000 before tests run, so no need to start the dev server manually. Workers are set  
+  to 1 (serial), so tests run one at a time in order.

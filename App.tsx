@@ -25,6 +25,22 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const initApp = async () => {
+      // Handle Stripe Connect onboarding redirects
+      const params = new URLSearchParams(window.location.search);
+      const stripeSuccess = params.get('stripe_success');
+      const stripeRefresh = params.get('stripe_refresh');
+      const stripeCleanerId = params.get('cleanerId');
+      if ((stripeSuccess || stripeRefresh) && stripeCleanerId) {
+        // Update the cleaner's connect status in storage
+        const userData = await storage.get(`user:${stripeCleanerId}`);
+        if (userData) {
+          userData.stripeConnectStatus = stripeSuccess ? 'active' : 'pending';
+          await storage.set(`user:${stripeCleanerId}`, userData);
+        }
+        // Clean the URL so a refresh doesn't re-trigger this
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+
       // Initialize service configuration if not present
       const existingServices = await storage.get('config:services');
       if (!existingServices) {

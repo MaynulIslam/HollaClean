@@ -22,3 +22,18 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment variables (never commit secrets)
+.env
+.env.*
+!.env.example
+server/.env
+server/.env.*
+!server/.env.example
+
+# Windows artifacts
+nul
+
+# Playwright test artifacts
+playwright-report/
+test-results/

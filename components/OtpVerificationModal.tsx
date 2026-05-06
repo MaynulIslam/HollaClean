@@ -9,17 +9,41 @@ interface OtpVerificationModalProps {
   onClose: () => void;
 }
 
-const DEMO_CODE = '123456';
+const OTP_API = (process.env.VITE_API_URL || process.env.API_URL || 'http://localhost:3001') + '/api/otp';
 
 const OtpVerificationModal: React.FC<OtpVerificationModalProps> = ({ type, target, onVerify, onClose }) => {
   const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [error, setError] = useState('');
-  const [step, setStep] = useState<'input' | 'verifying' | 'success'>('input');
+  const [step, setStep] = useState<'sending' | 'input' | 'verifying' | 'success'>('sending');
+  const [otpId, setOtpId] = useState<string | null>(null);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
-    inputRefs.current[0]?.focus();
-  }, []);
+    // Request OTP from server as soon as modal opens
+    fetch(`${OTP_API}/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target, type }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.otpId) {
+          setOtpId(data.otpId);
+          setStep('input');
+        } else {
+          setError('Failed to send verification code. Please try again.');
+          setStep('input');
+        }
+      })
+      .catch(() => {
+        setError('Could not reach verification server. Please try again.');
+        setStep('input');
+      });
+  }, [target, type]);
+
+  useEffect(() => {
+    if (step === 'input') inputRefs.current[0]?.focus();
+  }, [step]);
 
   const handleDigitChange = (index: number, value: string) => {
     if (!/^\d*$/.test(value)) return;
@@ -49,26 +73,40 @@ const OtpVerificationModal: React.FC<OtpVerificationModalProps> = ({ type, targe
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const code = digits.join('');
     if (code.length < 6) {
       setError('Please enter all 6 digits');
       return;
     }
+    if (!otpId) {
+      setError('Verification session expired. Please close and try again.');
+      return;
+    }
 
     setStep('verifying');
 
-    setTimeout(() => {
-      if (code === DEMO_CODE) {
+    try {
+      const res = await fetch(`${OTP_API}/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ otpId, code }),
+      });
+      const data = await res.json();
+      if (data.valid) {
         setStep('success');
         setTimeout(() => onVerify(), 1500);
       } else {
         setStep('input');
-        setError('Invalid code. For demo, use: 123456');
+        setError(data.error || 'Invalid verification code. Please try again.');
         setDigits(['', '', '', '', '', '']);
         inputRefs.current[0]?.focus();
       }
-    }, 1000);
+    } catch {
+      setStep('input');
+      setError('Could not verify code. Please try again.');
+      setDigits(['', '', '', '', '', '']);
+    }
   };
 
   const Icon = type === 'email' ? Mail : Phone;
@@ -84,6 +122,13 @@ const OtpVerificationModal: React.FC<OtpVerificationModalProps> = ({ type, targe
           </button>
         )}
 
+        {step === 'sending' && (
+          <div className="text-center py-8">
+            <Loader2 className="w-10 h-10 text-purple-600 animate-spin mx-auto mb-4" />
+            <p className="text-gray-600 font-medium">Sending verification code...</p>
+          </div>
+        )}
+
         {step === 'input' && (
           <>
             <div className="text-center mb-6">
@@ -97,16 +142,6 @@ const OtpVerificationModal: React.FC<OtpVerificationModalProps> = ({ type, targe
                 We sent a 6-digit code to
               </p>
               <p className="text-sm font-semibold text-gray-700">{target}</p>
-            </div>
-
-            {/* Demo hint */}
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-5">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                <p className="text-xs text-amber-700">
-                  <span className="font-semibold">Demo Mode:</span> Use code <span className="font-mono font-bold">123456</span>
-                </p>
-              </div>
             </div>
 
             {/* OTP Input */}

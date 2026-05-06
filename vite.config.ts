@@ -23,6 +23,8 @@ export default defineConfig(({ mode }) => {
         'process.env.EMAILJS_TEMPLATE_ID': JSON.stringify(env.EMAILJS_TEMPLATE_ID),
         'process.env.EMAILJS_PUBLIC_KEY': JSON.stringify(env.EMAILJS_PUBLIC_KEY),
         'process.env.STRIPE_PUBLISHABLE_KEY': JSON.stringify(env.STRIPE_PUBLISHABLE_KEY),
+        'process.env.VITE_API_URL': JSON.stringify(env.VITE_API_URL),
+        'process.env.VITE_ADMIN_SECRET': JSON.stringify(env.VITE_ADMIN_SECRET),
       },
       resolve: {
         alias: {
