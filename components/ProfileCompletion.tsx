@@ -6,8 +6,7 @@ import { User, ServiceOffer } from '../types';
 import { createSession } from '../utils/auth';
 import { CONFIG } from '../utils/config';
 import { GoogleUserInfo } from '../utils/firebase';
-import { NotificationHelpers } from '../utils/notifications';
-import { ExternalNotify, requestPushPermission } from '../utils/externalNotifications';
+import { requestPushPermission } from '../utils/externalNotifications';
 import { notifyAdmin } from '../utils/adminNotifications';
 import {
   ArrowLeft, ArrowRight, Home, Briefcase, Sparkles, Phone, MapPin,
@@ -203,10 +202,7 @@ const ProfileCompletion: React.FC<ProfileCompletionProps> = ({ googleUser, onCom
       await storage.set('session', session);
       await storage.set('currentUser', newUser);
 
-      // Send verification reminder (phone + address still need verifying)
-      await NotificationHelpers.verificationReminder(newUser.id);
       requestPushPermission();
-      ExternalNotify.verificationReminder(cleanEmail, fullName);
 
       // Notify admin about new registration
       notifyAdmin('new_registration', {

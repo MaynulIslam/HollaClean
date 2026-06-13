@@ -6,8 +6,7 @@ import { storage } from '../utils/storage';
 import { User, ServiceOffer } from '../types';
 import { hashPassword, validatePassword, createSession } from '../utils/auth';
 import { CONFIG } from '../utils/config';
-import { NotificationHelpers } from '../utils/notifications';
-import { ExternalNotify, requestPushPermission as requestPush } from '../utils/externalNotifications';
+import { requestPushPermission as requestPush } from '../utils/externalNotifications';
 import { notifyAdmin } from '../utils/adminNotifications';
 import {
   ArrowLeft, UserPlus, Sparkles, Home, Briefcase, Mail, Phone,
@@ -229,12 +228,8 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister, onGoogleS
       await storage.set('session', session);
       await storage.set('currentUser', newUser);
 
-      // Send verification reminder notification (in-app)
-      await NotificationHelpers.verificationReminder(newUser.id);
-
-      // Request push permission + send welcome email & push notification
+      // Request push permission
       requestPush();
-      ExternalNotify.verificationReminder(cleanEmail, `${formData.firstName.trim()} ${formData.lastName.trim()}`);
 
       // Notify admin about new registration
       notifyAdmin('new_registration', {

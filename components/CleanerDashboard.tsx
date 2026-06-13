@@ -182,37 +182,6 @@ const CleanerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) => 
               </div>
             </div>
 
-            {/* Verification Reminder Banner */}
-            {(!user.emailVerified || !user.phoneVerified || !user.addressVerified) && (
-              <Card className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200">
-                <div className="flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
-                    <Shield className="w-5 h-5 text-amber-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-bold text-gray-900 text-sm">Complete Your Verification</h3>
-                    <p className="text-xs text-gray-600 mt-0.5">
-                      Verify your {[!user.emailVerified && 'email', !user.phoneVerified && 'phone', !user.addressVerified && 'address'].filter(Boolean).join(', ')} to build trust with homeowners and get more jobs.
-                    </p>
-                    <div className="flex items-center gap-2 mt-2">
-                      <div className="flex items-center gap-1">
-                        {[user.emailVerified, user.phoneVerified, user.addressVerified].map((v, i) => (
-                          <div key={i} className={`w-2 h-2 rounded-full ${v ? 'bg-green-500' : 'bg-gray-300'}`} />
-                        ))}
-                      </div>
-                      <span className="text-xs text-gray-500">{[user.emailVerified, user.phoneVerified, user.addressVerified].filter(Boolean).length}/3 verified</span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setActiveTab('profile')}
-                    className="px-4 py-2 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-600 transition-colors flex-shrink-0"
-                  >
-                    Verify Now
-                  </button>
-                </div>
-              </Card>
-            )}
-
             {/* Active Job Alert */}
             {activeJob && (
               <Card className="bg-gradient-to-r from-pink-600 to-orange-500 text-white p-5 border-0">
