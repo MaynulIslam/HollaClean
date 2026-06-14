@@ -5,7 +5,7 @@ import { createPaymentIntent, PaymentBreakdown } from '../utils/paymentApi';
 import { CONFIG, getPlatformConfig } from '../utils/config';
 import {
   CreditCard, Lock, CheckCircle, AlertCircle, Loader2, X,
-  DollarSign, Calendar, Clock, MapPin, Shield, Sparkles
+  DollarSign, Calendar, Clock, MapPin, Shield
 } from 'lucide-react';
 
 interface PaymentCheckoutProps {
@@ -208,7 +208,7 @@ const PaymentCheckout: React.FC<PaymentCheckoutProps> = ({
         {/* Header */}
         <div className="sticky top-0 bg-white border-b border-gray-100 p-4 flex items-center justify-between z-10">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-purple-600" />
+            <Shield className="w-6 h-6 text-purple-600" />
             <h2 className="text-lg font-bold font-outfit text-gray-900">Secure Checkout</h2>
           </div>
           {step !== 'processing' && !isSubmitting && (
