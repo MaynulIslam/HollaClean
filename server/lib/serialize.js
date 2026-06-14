@@ -1,0 +1,75 @@
+/**
+ * Shared serializer: maps a Prisma CleaningRequest (with homeowner/cleaner
+ * relations) to the denormalized shape the frontend expects. Used by both the
+ * marketplace request routes and the admin console so the two never drift.
+ */
+function serializeRequest(r) {
+  if (!r) return r;
+  const homeowner = r.homeowner || {};
+  const cleaner = r.cleaner || null;
+  return {
+    id: r.id,
+    homeownerId: r.homeownerId,
+    homeownerName: homeowner.name || '',
+    homeownerPhone: homeowner.phone || '',
+    homeownerEmail: homeowner.email || '',
+
+    serviceType: r.serviceType,
+    date: r.date,
+    time: r.time,
+    hours: r.hours,
+    address: r.address,
+    instructions: r.instructions || '',
+    images: r.images || [],
+    roomImages: r.roomImages || undefined,
+
+    status: r.status,
+
+    acceptedBy: r.cleanerId || null,
+    cleanerId: r.cleanerId || undefined,
+    cleanerName: cleaner ? cleaner.name : null,
+    cleanerPhone: cleaner ? cleaner.phone || null : null,
+    cleanerEmail: cleaner ? cleaner.email || null : null,
+
+    hourlyRate: r.hourlyRate,
+    acceptedAt: r.acceptedAt ? r.acceptedAt.toISOString() : null,
+    completedAt: r.completedAt ? r.completedAt.toISOString() : null,
+
+    totalAmount: r.totalAmount,
+    taxAmount: r.taxAmount,
+    taxRate: r.taxRate,
+    platformCommission: r.platformCommission,
+    cleanerPayout: r.cleanerPayout,
+    paymentStatus: r.paymentStatus,
+    paymentIntentId: r.paymentIntentId || undefined,
+    paidAt: r.paidAt ? r.paidAt.toISOString() : undefined,
+
+    payoutStatus: r.payoutStatus || undefined,
+    payoutDisbursedAt: r.payoutDisbursedAt ? r.payoutDisbursedAt.toISOString() : undefined,
+    payoutAmount: r.payoutAmount != null ? r.payoutAmount : undefined,
+
+    squareFootage: r.squareFootage || undefined,
+    floorType: r.floorType || undefined,
+    numberOfBedrooms: r.numberOfBedrooms || undefined,
+    numberOfBathrooms: r.numberOfBathrooms || undefined,
+    numberOfKitchens: r.numberOfKitchens || undefined,
+    numberOfLivingRooms: r.numberOfLivingRooms || undefined,
+    numberOfOtherRooms: r.numberOfOtherRooms || undefined,
+    hasPets: r.hasPets != null ? r.hasPets : undefined,
+
+    locationApprovalStatus: r.locationApprovalStatus || undefined,
+    locationApprovalRequestedAt: r.locationApprovalRequestedAt
+      ? r.locationApprovalRequestedAt.toISOString()
+      : undefined,
+    cleanerDistanceAtStart: r.cleanerDistanceAtStart != null ? r.cleanerDistanceAtStart : undefined,
+
+    createdAt: r.createdAt ? r.createdAt.toISOString() : new Date().toISOString(),
+  };
+}
+
+const WITH_PARTIES = {
+  homeowner: { select: { id: true, name: true, phone: true, email: true } },
+  cleaner: { select: { id: true, name: true, phone: true, email: true } },
+};
+
+module.exports = { serializeRequest, WITH_PARTIES };

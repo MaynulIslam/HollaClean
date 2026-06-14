@@ -247,11 +247,165 @@ export const reviewsApi = {
   },
 };
 
+// ─── Services (public catalog) ──────────────────────────────────────────────
+export const servicesApi = {
+  /** The shared service catalog (replaces the old localStorage 'config:services'). */
+  async list(): Promise<Array<{ id: string; name: string; basePrice: number }>> {
+    const { services } = await request<{
+      services: Array<{ id: string; name: string; basePrice: number }>;
+    }>('/services', { auth: false });
+    return services;
+  },
+};
+
+// ─── Admin console ──────────────────────────────────────────────────────────
+// The admin console authenticates with a short-lived HMAC token (x-admin-token)
+// minted from ADMIN_SECRET, NOT a user JWT. This mirrors AdminFinance/paymentApi
+// so the whole console uses one mechanism. Token is cached until it nears expiry.
+let _adminToken: string | null = null;
+let _adminTokenExpiry = 0;
+
+async function getAdminToken(): Promise<string> {
+  if (_adminToken && Date.now() < _adminTokenExpiry - 30_000) return _adminToken;
+  const secret = process.env.VITE_ADMIN_SECRET || process.env.ADMIN_SECRET || '';
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/auth/admin-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret }),
+    });
+  } catch {
+    throw new ApiError('Network error — could not reach the server', 0);
+  }
+  if (!res.ok) throw new ApiError('Admin authentication failed', res.status);
+  const { token, expiresIn } = await res.json();
+  _adminToken = token;
+  _adminTokenExpiry = Date.now() + (expiresIn || 0);
+  return token;
+}
+
+/** Like request<T>(), but authenticates with the admin HMAC token. */
+async function adminRequest<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const { method = 'GET', body } = opts;
+  const token = await getAdminToken();
+  const headers: Record<string, string> = { 'x-admin-token': token };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new ApiError('Network error — could not reach the server', 0);
+  }
+  // A 401 means our cached admin token is stale — drop it so the next call re-mints.
+  if (res.status === 401) {
+    _adminToken = null;
+    _adminTokenExpiry = 0;
+  }
+
+  let data: any = null;
+  const text = await res.text();
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
+  }
+  if (!res.ok) {
+    const message = (data && data.error) || `Request failed (${res.status})`;
+    throw new ApiError(message, res.status);
+  }
+  return data as T;
+}
+
+export const adminApi = {
+  // ── Overview lists ──
+  async listRequests(): Promise<CleaningRequest[]> {
+    const { requests } = await adminRequest<{ requests: CleaningRequest[] }>('/admin/requests');
+    return requests;
+  },
+  async listUsers(): Promise<User[]> {
+    const { users } = await adminRequest<{ users: User[] }>('/admin/users');
+    return users;
+  },
+
+  // ── Service catalog CRUD ──
+  async listServices(): Promise<Array<{ id: string; name: string; basePrice: number }>> {
+    const { services } = await adminRequest<{
+      services: Array<{ id: string; name: string; basePrice: number }>;
+    }>('/admin/services');
+    return services;
+  },
+  async createService(payload: { name: string; basePrice: number }) {
+    const { service } = await adminRequest<{ service: any }>('/admin/services', {
+      method: 'POST',
+      body: payload,
+    });
+    return service;
+  },
+  async updateService(id: string, patch: { name?: string; basePrice?: number }) {
+    const { service } = await adminRequest<{ service: any }>(`/admin/services/${id}`, {
+      method: 'PATCH',
+      body: patch,
+    });
+    return service;
+  },
+  async deleteService(id: string): Promise<void> {
+    await adminRequest(`/admin/services/${id}`, { method: 'DELETE' });
+  },
+
+  // ── Users ──
+  async updateUser(id: string, patch: Record<string, any>): Promise<User> {
+    const { user } = await adminRequest<{ user: User }>(`/admin/users/${id}`, {
+      method: 'PATCH',
+      body: patch,
+    });
+    return user;
+  },
+  async deleteUser(id: string): Promise<void> {
+    await adminRequest(`/admin/users/${id}`, { method: 'DELETE' });
+  },
+
+  // ── Requests ──
+  async updateRequest(id: string, patch: Record<string, any>): Promise<CleaningRequest> {
+    const { request: r } = await adminRequest<{ request: CleaningRequest }>(`/admin/requests/${id}`, {
+      method: 'PATCH',
+      body: patch,
+    });
+    return r;
+  },
+  async locationApproval(id: string, decision: 'approved' | 'denied'): Promise<CleaningRequest> {
+    const { request: r } = await adminRequest<{ request: CleaningRequest }>(
+      `/admin/requests/${id}/location-approval`,
+      { method: 'POST', body: { decision } }
+    );
+    return r;
+  },
+  async payout(
+    id: string,
+    payload: { action: 'disburse' | 'adjust'; amount?: number }
+  ): Promise<CleaningRequest> {
+    const { request: r } = await adminRequest<{ request: CleaningRequest }>(
+      `/admin/requests/${id}/payout`,
+      { method: 'POST', body: payload }
+    );
+    return r;
+  },
+};
+
 export const api = {
   auth: authApi,
   users: usersApi,
   requests: requestsApi,
   reviews: reviewsApi,
+  services: servicesApi,
+  admin: adminApi,
   getToken,
   setToken,
   clearToken,

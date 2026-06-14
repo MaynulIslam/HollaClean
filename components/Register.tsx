@@ -2,9 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import TermsModal from './TermsModal';
 import { Button, Input, Card } from './UI';
-import { storage } from '../utils/storage';
 import { api, ApiError } from '../utils/api';
-import { User, ServiceOffer } from '../types';
+import { User } from '../types';
 import { validatePassword } from '../utils/auth';
 import { CONFIG } from '../utils/config';
 import { NotificationHelpers } from '../utils/notifications';
@@ -75,13 +74,17 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister, onGoogleS
 
   useEffect(() => {
     const loadServices = async () => {
-      const saved: ServiceOffer[] = await storage.get('config:services') || [];
-      if (saved.length > 0) {
-        setServiceOptions(saved.map(s => s.name));
-      } else {
-        // Fallback to default services if admin hasn't configured them yet
-        setServiceOptions(['Regular Cleaning', 'Deep Cleaning', 'Move In/Out', 'Window Cleaning', 'Carpet Cleaning', 'Laundry', 'Post-Construction']);
+      try {
+        const saved = await api.services.list();
+        if (saved.length > 0) {
+          setServiceOptions(saved.map((s) => s.name));
+          return;
+        }
+      } catch {
+        /* fall through to defaults */
       }
+      // Fallback to default services if the catalog couldn't be loaded.
+      setServiceOptions(['Regular Cleaning', 'Deep Cleaning', 'Move In/Out', 'Window Cleaning', 'Carpet Cleaning', 'Laundry', 'Post-Construction']);
     };
     loadServices();
   }, []);

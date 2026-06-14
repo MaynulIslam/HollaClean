@@ -68,6 +68,7 @@ export interface CleaningRequest {
   acceptedBy: string | null;
   cleanerName: string | null;
   cleanerPhone: string | null;
+  cleanerEmail?: string | null;
   hourlyRate: number | null;
   acceptedAt: string | null;
   completedAt: string | null;

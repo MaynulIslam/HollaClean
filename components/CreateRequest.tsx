@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { User, CleaningRequest, ServiceOffer } from '../types';
-import { storage } from '../utils/storage';
+import { User, CleaningRequest } from '../types';
 import { api } from '../utils/api';
 import { getPlatformConfig } from '../utils/config';
 import { Button, Card, Input } from './UI';
@@ -137,10 +136,14 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
 
   useEffect(() => {
     const loadServices = async () => {
-      const services: ServiceOffer[] = await storage.get('config:services') || [];
-      if (services.length > 0) {
-        setServiceOptions(services.map(s => s.name));
-        setFormData(prev => ({ ...prev, serviceType: services[0].name }));
+      try {
+        const services = await api.services.list();
+        if (services.length > 0) {
+          setServiceOptions(services.map((s) => s.name));
+          setFormData(prev => ({ ...prev, serviceType: services[0].name }));
+        }
+      } catch {
+        /* leave service options empty if the catalog can't be loaded */
       }
     };
     loadServices();

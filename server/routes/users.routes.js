@@ -14,10 +14,11 @@ const router = express.Router();
 // Fields a user is allowed to change about themselves. Anything not in this
 // list (type, email, passwordHash, rating, totalEarnings, stripe*, etc.) is
 // ignored so the client can't escalate privileges or fake its own ratings.
+// NOTE: firstName/lastName are NOT database columns — the client splits the
+// name for its form fields but always sends the combined `name`, which is what
+// we persist. Listing them here would make Prisma throw on an unknown column.
 const SELF_EDITABLE = [
   'name',
-  'firstName',
-  'lastName',
   'phone',
   'address',
   'streetAddress',

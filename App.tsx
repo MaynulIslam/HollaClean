@@ -1,8 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { storage } from './utils/storage';
 import { api } from './utils/api';
-import { User, ServiceOffer } from './types';
+import { User } from './types';
 import { CONFIG } from './utils/config';
 import { initReminderService, checkAndSendReminders } from './utils/reminderService';
 import { signInWithGoogle, signOutFirebase, GoogleUserInfo } from './utils/firebase';
@@ -37,12 +36,8 @@ const App: React.FC = () => {
         window.history.replaceState({}, '', window.location.pathname);
       }
 
-      // Initialize service configuration if not present (static app config,
-      // intentionally kept client-side).
-      const existingServices = await storage.get('config:services');
-      if (!existingServices) {
-        await initializeServices();
-      }
+      // The service catalog now lives in the shared database and is fetched on
+      // demand by the screens that need it (see utils/api.ts servicesApi).
 
       // Resolve the current user from the stored JWT.
       try {
@@ -81,16 +76,6 @@ const App: React.FC = () => {
     const interval = setInterval(checkAndSendReminders, CONFIG.reminders.checkIntervalMs);
     return () => clearInterval(interval);
   }, [currentUser]);
-
-  // Initialize services from config (no hardcoded test users)
-  const initializeServices = async () => {
-    const defaultServices: ServiceOffer[] = CONFIG.services.map((s, idx) => ({
-      id: String(idx + 1),
-      name: s.name,
-      basePrice: s.basePrice
-    }));
-    await storage.set('config:services', defaultServices);
-  };
 
   const handleGoogleSignIn = async () => {
     // Sign in with Firebase, then hand the ID token to our server, which

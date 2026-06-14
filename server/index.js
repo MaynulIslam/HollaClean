@@ -199,6 +199,11 @@ app.use('/api/auth', require('./routes/auth.routes'));
 app.use('/api/requests', require('./routes/requests.routes'));
 app.use('/api/users', require('./routes/users.routes'));
 app.use('/api/reviews', require('./routes/reviews.routes'));
+app.use('/api/services', require('./routes/services.routes'));
+// Admin console (DB-backed). Gated inside the router by x-admin-token. Mounted
+// before the legacy /api/admin/earnings + /api/admin/balance handlers below;
+// those paths aren't defined in this router so requests fall through to them.
+app.use('/api/admin', require('./routes/admin.routes'));
 
 // ==================== AUTH (Password hashing via bcrypt) ====================
 

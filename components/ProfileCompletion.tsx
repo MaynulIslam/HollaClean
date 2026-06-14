@@ -1,9 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Input } from './UI';
-import { storage } from '../utils/storage';
 import { api } from '../utils/api';
-import { User, ServiceOffer } from '../types';
+import { User } from '../types';
 import { CONFIG } from '../utils/config';
 import { GoogleUserInfo } from '../utils/firebase';
 import { NotificationHelpers } from '../utils/notifications';
@@ -55,9 +54,13 @@ const ProfileCompletion: React.FC<ProfileCompletionProps> = ({ googleUser, pendi
 
   useEffect(() => {
     const loadServices = async () => {
-      const saved: ServiceOffer[] = await storage.get('config:services') || [];
-      if (saved.length > 0) {
-        setServiceOptions(saved.map(s => s.name));
+      try {
+        const saved = await api.services.list();
+        if (saved.length > 0) {
+          setServiceOptions(saved.map((s) => s.name));
+        }
+      } catch {
+        /* leave defaults in place */
       }
     };
     loadServices();
