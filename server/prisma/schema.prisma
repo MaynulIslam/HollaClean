@@ -1,0 +1,185 @@
+// HollaClean database schema
+// Run:  npx prisma generate        (after npm install)
+//       npx prisma migrate dev     (creates tables in your Postgres)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  type         String   @default("homeowner") // homeowner | cleaner | admin
+  name         String
+  email        String   @unique
+  passwordHash String? // bcrypt — never sent to the browser
+  phone        String?
+  address      String?
+  streetAddress String?
+  apartment    String?
+  city         String?
+  province     String?
+  country      String?  @default("Canada")
+  createdAt    DateTime @default(now())
+
+  // Verification
+  emailVerified   Boolean @default(false)
+  phoneVerified   Boolean @default(false)
+  addressVerified Boolean @default(false)
+
+  // Auth provider
+  authProvider    String? // email | google
+  firebaseUid     String? @unique
+  photoURL        String?
+  profileComplete Boolean @default(true)
+
+  // Cleaner-specific
+  bio                 String?
+  hourlyRate          Float?
+  experience          Int?
+  services            String[] @default([])
+  rating              Float    @default(0)
+  reviewCount         Int      @default(0)
+  totalEarnings       Float    @default(0)
+  isAvailable         Boolean  @default(true)
+  stripeAccountId     String?
+  stripeConnectStatus String?  @default("not_started") // not_started | pending | active
+
+  requestsAsHomeowner CleaningRequest[] @relation("HomeownerRequests")
+  jobsAsCleaner       CleaningRequest[] @relation("CleanerJobs")
+  reviewsWritten      Review[]          @relation("HomeownerReviews")
+  reviewsReceived     Review[]          @relation("CleanerReviews")
+  notifications       Notification[]
+
+  @@index([type])
+}
+
+model CleaningRequest {
+  id          String  @id @default(uuid())
+  homeownerId String
+  homeowner   User    @relation("HomeownerRequests", fields: [homeownerId], references: [id])
+  cleanerId   String?
+  cleaner     User?   @relation("CleanerJobs", fields: [cleanerId], references: [id])
+
+  serviceType  String
+  date         String
+  time         String
+  hours        Int
+  address      String
+  instructions String?
+  roomImages   Json?
+  images       String[] @default([])
+
+  status RequestStatus @default(open)
+
+  // Money — the SERVER is the source of truth for all of these
+  hourlyRate         Float?
+  totalAmount        Float   @default(0)
+  taxAmount          Float   @default(0)
+  taxRate            Float   @default(0)
+  platformCommission Float   @default(0)
+  cleanerPayout      Float   @default(0)
+  paymentStatus      String  @default("pending") // pending | awaiting | held | paid | demo_completed
+  paymentIntentId    String?
+  paidAt             DateTime?
+
+  // Admin payout tracking
+  payoutStatus      String? // pending | disbursed
+  payoutDisbursedAt DateTime?
+  payoutAmount      Float?
+
+  // Property details
+  squareFootage      Int?
+  floorType          String?
+  numberOfBedrooms   Int?
+  numberOfBathrooms  Int?
+  numberOfKitchens   Int?
+  numberOfLivingRooms Int?
+  numberOfOtherRooms Int?
+  hasPets            Boolean?
+
+  // Location proximity check
+  locationApprovalStatus      String? // pending | approved | denied
+  locationApprovalRequestedAt DateTime?
+  cleanerDistanceAtStart      Float?
+
+  acceptedAt  DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  reviews Review[]
+
+  @@index([status])
+  @@index([homeownerId])
+  @@index([cleanerId])
+}
+
+enum RequestStatus {
+  open
+  accepted
+  in_progress
+  awaiting_payment
+  completed
+  cancelled
+}
+
+model Review {
+  id          String   @id @default(uuid())
+  requestId   String
+  request     CleaningRequest @relation(fields: [requestId], references: [id])
+  cleanerId   String
+  cleaner     User     @relation("CleanerReviews", fields: [cleanerId], references: [id])
+  homeownerId String
+  homeowner   User     @relation("HomeownerReviews", fields: [homeownerId], references: [id])
+  rating      Int
+  comment     String?
+  createdAt   DateTime @default(now())
+
+  @@index([cleanerId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  body      String?
+  type      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model ServiceOffer {
+  id        String @id @default(uuid())
+  name      String
+  basePrice Float
+}
+
+// Replaces server/payments.json (which is lost on every Render redeploy)
+model Payment {
+  id            String   @id // Stripe PaymentIntent id
+  requestId     String
+  homeownerId   String?
+  cleanerId     String?
+  amount        Float
+  platformFee   Float
+  cleanerPayout Float
+  status        String   @default("pending")
+  createdAt     DateTime @default(now())
+}
+
+// Replaces server/connected-accounts.json
+model ConnectedAccount {
+  cleanerId String   @id
+  accountId String
+  email     String?
+  name      String?
+  status    String   @default("pending")
+  createdAt DateTime @default(now())
+}

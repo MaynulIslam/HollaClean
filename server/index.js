@@ -170,6 +170,16 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// ==================== DATABASE-BACKED API (the rebuild) ====================
+// These routers replace the old localStorage model with a shared Postgres DB.
+// Identity comes from a verified JWT (see lib/auth.js); marketplace data lives
+// in the DB (see lib/db.js + prisma/schema.prisma). The legacy Stripe routes
+// below stay as-is for now.
+app.use('/api/auth', require('./routes/auth.routes'));
+app.use('/api/requests', require('./routes/requests.routes'));
+app.use('/api/users', require('./routes/users.routes'));
+app.use('/api/reviews', require('./routes/reviews.routes'));
+
 // ==================== AUTH (Password hashing via bcrypt) ====================
 
 const BCRYPT_ROUNDS = 12;

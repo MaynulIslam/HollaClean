@@ -1,0 +1,306 @@
+/**
+ * Cleaning-request routes — the marketplace core.
+ *
+ * This is the heart of the rebuild. Previously requests lived in each browser's
+ * localStorage, so a homeowner's request was invisible to every cleaner. Now a
+ * request is a row in the shared database that any authorized client can read.
+ *
+ * SECURITY / MONEY: the client never sets prices. Money fields are computed
+ * server-side via computePricing() from the cleaner's hourlyRate and the
+ * requested hours. The DB row is the single source of truth for what the
+ * homeowner is charged and what the cleaner is paid.
+ */
+const express = require('express');
+const { prisma } = require('../lib/db');
+const { requireAuth } = require('../lib/auth');
+const { computePricing } = require('../lib/pricing');
+
+const router = express.Router();
+
+/**
+ * Map a Prisma CleaningRequest (with homeowner/cleaner relations) to the shape
+ * the frontend expects (denormalized names/phones, acceptedBy, etc.).
+ */
+function serialize(r) {
+  if (!r) return r;
+  const homeowner = r.homeowner || {};
+  const cleaner = r.cleaner || null;
+  return {
+    id: r.id,
+    homeownerId: r.homeownerId,
+    homeownerName: homeowner.name || '',
+    homeownerPhone: homeowner.phone || '',
+    homeownerEmail: homeowner.email || '',
+
+    serviceType: r.serviceType,
+    date: r.date,
+    time: r.time,
+    hours: r.hours,
+    address: r.address,
+    instructions: r.instructions || '',
+    images: r.images || [],
+    roomImages: r.roomImages || undefined,
+
+    status: r.status,
+
+    acceptedBy: r.cleanerId || null,
+    cleanerId: r.cleanerId || undefined,
+    cleanerName: cleaner ? cleaner.name : null,
+    cleanerPhone: cleaner ? cleaner.phone || null : null,
+
+    hourlyRate: r.hourlyRate,
+    acceptedAt: r.acceptedAt ? r.acceptedAt.toISOString() : null,
+    completedAt: r.completedAt ? r.completedAt.toISOString() : null,
+
+    totalAmount: r.totalAmount,
+    taxAmount: r.taxAmount,
+    taxRate: r.taxRate,
+    platformCommission: r.platformCommission,
+    cleanerPayout: r.cleanerPayout,
+    paymentStatus: r.paymentStatus,
+    paymentIntentId: r.paymentIntentId || undefined,
+    paidAt: r.paidAt ? r.paidAt.toISOString() : undefined,
+
+    payoutStatus: r.payoutStatus || undefined,
+    payoutDisbursedAt: r.payoutDisbursedAt ? r.payoutDisbursedAt.toISOString() : undefined,
+    payoutAmount: r.payoutAmount != null ? r.payoutAmount : undefined,
+
+    squareFootage: r.squareFootage || undefined,
+    floorType: r.floorType || undefined,
+    numberOfBedrooms: r.numberOfBedrooms || undefined,
+    numberOfBathrooms: r.numberOfBathrooms || undefined,
+    numberOfKitchens: r.numberOfKitchens || undefined,
+    numberOfLivingRooms: r.numberOfLivingRooms || undefined,
+    numberOfOtherRooms: r.numberOfOtherRooms || undefined,
+    hasPets: r.hasPets != null ? r.hasPets : undefined,
+
+    locationApprovalStatus: r.locationApprovalStatus || undefined,
+    locationApprovalRequestedAt: r.locationApprovalRequestedAt
+      ? r.locationApprovalRequestedAt.toISOString()
+      : undefined,
+    cleanerDistanceAtStart: r.cleanerDistanceAtStart != null ? r.cleanerDistanceAtStart : undefined,
+
+    createdAt: r.createdAt ? r.createdAt.toISOString() : new Date().toISOString(),
+  };
+}
+
+const WITH_PARTIES = {
+  homeowner: { select: { id: true, name: true, phone: true, email: true } },
+  cleaner: { select: { id: true, name: true, phone: true, email: true } },
+};
+
+// POST /api/requests  — homeowner creates a request
+router.post('/', requireAuth, async (req, res) => {
+  try {
+    if (req.user.type !== 'homeowner') {
+      return res.status(403).json({ error: 'Only homeowners can create requests' });
+    }
+    const b = req.body || {};
+    if (!b.serviceType || !b.date || !b.time || !b.address) {
+      return res.status(400).json({ error: 'serviceType, date, time and address are required' });
+    }
+
+    const hours = Number(b.hours) > 0 ? Math.round(Number(b.hours)) : 1;
+
+    const created = await prisma.cleaningRequest.create({
+      data: {
+        homeownerId: req.user.id,
+        serviceType: String(b.serviceType),
+        date: String(b.date),
+        time: String(b.time),
+        hours,
+        address: String(b.address),
+        instructions: b.instructions || null,
+        images: Array.isArray(b.images) ? b.images : [],
+        roomImages: b.roomImages || undefined,
+        status: 'open',
+
+        // Property details (optional)
+        squareFootage: b.squareFootage != null ? Number(b.squareFootage) : null,
+        floorType: b.floorType || null,
+        numberOfBedrooms: b.numberOfBedrooms != null ? Number(b.numberOfBedrooms) : null,
+        numberOfBathrooms: b.numberOfBathrooms != null ? Number(b.numberOfBathrooms) : null,
+        numberOfKitchens: b.numberOfKitchens != null ? Number(b.numberOfKitchens) : null,
+        numberOfLivingRooms: b.numberOfLivingRooms != null ? Number(b.numberOfLivingRooms) : null,
+        numberOfOtherRooms: b.numberOfOtherRooms != null ? Number(b.numberOfOtherRooms) : null,
+        hasPets: b.hasPets != null ? Boolean(b.hasPets) : null,
+        // Money is intentionally NOT set here — it's computed when a cleaner with
+        // a known hourlyRate accepts the job.
+      },
+      include: WITH_PARTIES,
+    });
+
+    res.status(201).json({ request: serialize(created) });
+  } catch (err) {
+    console.error('create request error:', err);
+    res.status(500).json({ error: 'Failed to create request' });
+  }
+});
+
+// GET /api/requests/open  — cleaners browse the open marketplace
+router.get('/open', requireAuth, async (req, res) => {
+  try {
+    const rows = await prisma.cleaningRequest.findMany({
+      where: { status: 'open' },
+      orderBy: { createdAt: 'desc' },
+      include: WITH_PARTIES,
+    });
+    res.json({ requests: rows.map(serialize) });
+  } catch (err) {
+    console.error('list open requests error:', err);
+    res.status(500).json({ error: 'Failed to load requests' });
+  }
+});
+
+// GET /api/requests/mine  — a homeowner's own requests
+router.get('/mine', requireAuth, async (req, res) => {
+  try {
+    const rows = await prisma.cleaningRequest.findMany({
+      where: { homeownerId: req.user.id },
+      orderBy: { createdAt: 'desc' },
+      include: WITH_PARTIES,
+    });
+    res.json({ requests: rows.map(serialize) });
+  } catch (err) {
+    console.error('list my requests error:', err);
+    res.status(500).json({ error: 'Failed to load requests' });
+  }
+});
+
+// GET /api/requests/jobs  — a cleaner's accepted/active jobs
+router.get('/jobs', requireAuth, async (req, res) => {
+  try {
+    const rows = await prisma.cleaningRequest.findMany({
+      where: { cleanerId: req.user.id },
+      orderBy: { createdAt: 'desc' },
+      include: WITH_PARTIES,
+    });
+    res.json({ requests: rows.map(serialize) });
+  } catch (err) {
+    console.error('list jobs error:', err);
+    res.status(500).json({ error: 'Failed to load jobs' });
+  }
+});
+
+// GET /api/requests/:id
+router.get('/:id', requireAuth, async (req, res) => {
+  try {
+    const r = await prisma.cleaningRequest.findUnique({
+      where: { id: req.params.id },
+      include: WITH_PARTIES,
+    });
+    if (!r) return res.status(404).json({ error: 'Request not found' });
+
+    // Only the homeowner, the assigned cleaner, an admin, or (while open) any
+    // cleaner may view a request.
+    const u = req.user;
+    const allowed =
+      u.type === 'admin' ||
+      r.homeownerId === u.id ||
+      r.cleanerId === u.id ||
+      (r.status === 'open' && u.type === 'cleaner');
+    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
+
+    res.json({ request: serialize(r) });
+  } catch (err) {
+    console.error('get request error:', err);
+    res.status(500).json({ error: 'Failed to load request' });
+  }
+});
+
+// POST /api/requests/:id/accept  — a cleaner claims an open job (atomic)
+router.post('/:id/accept', requireAuth, async (req, res) => {
+  try {
+    if (req.user.type !== 'cleaner') {
+      return res.status(403).json({ error: 'Only cleaners can accept jobs' });
+    }
+
+    const cleaner = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!cleaner) return res.status(404).json({ error: 'Cleaner not found' });
+
+    const existing = await prisma.cleaningRequest.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Request not found' });
+    if (existing.status !== 'open') {
+      return res.status(409).json({ error: 'This job is no longer available' });
+    }
+
+    const pricing = computePricing({ hourlyRate: cleaner.hourlyRate, hours: existing.hours });
+
+    // Atomic claim: updateMany with status:'open' in the WHERE means only the
+    // first cleaner to win the race flips the row. count===0 => someone beat us.
+    const result = await prisma.cleaningRequest.updateMany({
+      where: { id: existing.id, status: 'open' },
+      data: {
+        cleanerId: cleaner.id,
+        status: 'accepted',
+        acceptedAt: new Date(),
+        hourlyRate: pricing.hourlyRate,
+        totalAmount: pricing.totalAmount,
+        taxAmount: pricing.taxAmount,
+        taxRate: pricing.taxRate,
+        platformCommission: pricing.platformCommission,
+        cleanerPayout: pricing.cleanerPayout,
+        paymentStatus: 'awaiting',
+      },
+    });
+
+    if (result.count === 0) {
+      return res.status(409).json({ error: 'This job was just taken by another cleaner' });
+    }
+
+    const updated = await prisma.cleaningRequest.findUnique({
+      where: { id: existing.id },
+      include: WITH_PARTIES,
+    });
+    res.json({ request: serialize(updated) });
+  } catch (err) {
+    console.error('accept request error:', err);
+    res.status(500).json({ error: 'Failed to accept job' });
+  }
+});
+
+// Allowed status transitions, enforced server-side.
+const TRANSITIONS = {
+  accepted: ['in_progress', 'cancelled'],
+  in_progress: ['awaiting_payment', 'cancelled'],
+  awaiting_payment: ['completed'],
+  open: ['cancelled'],
+};
+
+// PATCH /api/requests/:id/status  — move a job through its lifecycle
+router.patch('/:id/status', requireAuth, async (req, res) => {
+  try {
+    const next = req.body && req.body.status;
+    if (!next) return res.status(400).json({ error: 'status is required' });
+
+    const r = await prisma.cleaningRequest.findUnique({ where: { id: req.params.id } });
+    if (!r) return res.status(404).json({ error: 'Request not found' });
+
+    const u = req.user;
+    const isHomeowner = r.homeownerId === u.id;
+    const isCleaner = r.cleanerId === u.id;
+    if (!isHomeowner && !isCleaner && u.type !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const allowedNext = TRANSITIONS[r.status] || [];
+    if (!allowedNext.includes(next)) {
+      return res.status(409).json({ error: `Cannot move from ${r.status} to ${next}` });
+    }
+
+    const data = { status: next };
+    if (next === 'completed') data.completedAt = new Date();
+
+    const updated = await prisma.cleaningRequest.update({
+      where: { id: r.id },
+      data,
+      include: WITH_PARTIES,
+    });
+    res.json({ request: serialize(updated) });
+  } catch (err) {
+    console.error('update status error:', err);
+    res.status(500).json({ error: 'Failed to update status' });
+  }
+});
+
+module.exports = router;
