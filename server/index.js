@@ -166,8 +166,28 @@ app.get('/', (req, res) => {
   });
 });
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+app.get('/api/health', async (req, res) => {
+  const dbConfigured = Boolean(process.env.DATABASE_URL);
+  let database = 'not_configured';
+  if (dbConfigured) {
+    try {
+      const { prisma } = require('./lib/db');
+      await prisma.$queryRaw`SELECT 1`;
+      database = 'connected';
+    } catch (err) {
+      database = 'unreachable';
+    }
+  }
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    database,
+    config: {
+      databaseUrl: dbConfigured,
+      jwtSecret: Boolean(process.env.JWT_SECRET),
+      firebaseServiceAccount: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT),
+    },
+  });
 });
 
 // ==================== DATABASE-BACKED API (the rebuild) ====================
@@ -757,6 +777,23 @@ app.post('/api/webhooks/stripe',
 );
 
 // ==================== START SERVER ====================
+
+// Warn loudly at startup if the database-backed API is missing its config.
+// The server still boots (Stripe/payment routes work without these), but the
+// new /api/auth, /api/requests, /api/users and /api/reviews routes will fail
+// at the database boundary until these are set. This prints exactly what's
+// missing so it's obvious in the Render logs.
+const DB_API_ENV = ['DATABASE_URL', 'JWT_SECRET', 'FIREBASE_SERVICE_ACCOUNT'];
+const missingDbEnv = DB_API_ENV.filter((k) => !process.env[k]);
+if (missingDbEnv.length > 0) {
+  console.warn(
+    `\n⚠️  Database-backed API is NOT fully configured.\n` +
+    `   Missing env var(s): ${missingDbEnv.join(', ')}\n` +
+    `   Stripe/payment routes will work, but /api/auth, /api/requests,\n` +
+    `   /api/users and /api/reviews will fail until these are set\n` +
+    `   (and 'prisma migrate deploy' has been run against the database).\n`
+  );
+}
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
