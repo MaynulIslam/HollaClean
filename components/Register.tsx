@@ -3,8 +3,9 @@ import React, { useState, useEffect } from 'react';
 import TermsModal from './TermsModal';
 import { Button, Input, Card } from './UI';
 import { storage } from '../utils/storage';
+import { api, ApiError } from '../utils/api';
 import { User, ServiceOffer } from '../types';
-import { hashPassword, validatePassword, createSession } from '../utils/auth';
+import { validatePassword } from '../utils/auth';
 import { CONFIG } from '../utils/config';
 import { NotificationHelpers } from '../utils/notifications';
 import { ExternalNotify, requestPushPermission as requestPush } from '../utils/externalNotifications';
@@ -175,30 +176,18 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister, onGoogleS
 
     try {
       const cleanEmail = formData.email.trim().toLowerCase();
-      const keys = await storage.list('user:');
-      for (const key of keys) {
-        const existing = await storage.get(key);
-        if (existing && existing.email.toLowerCase() === cleanEmail) {
-          setError('This email is already registered. Please use a different email or login.');
-          setIsLoading(false);
-          return;
-        }
-      }
-
-      // Hash the password before storing
-      const hashedPassword = await hashPassword(formData.password);
-
       const fullName = `${formData.firstName.trim()} ${formData.lastName.trim()}`;
       const fullAddress = `${formData.streetAddress}${formData.apartment ? ', ' + formData.apartment : ''}, ${formData.city}, ${formData.province}, ${formData.country}`;
 
-      const newUser: User = {
-        id: `user_${Date.now()}`,
-        type: role,
+      // The server creates the account (hashing the password with bcrypt),
+      // enforces email uniqueness, and returns a JWT + the new user.
+      const newUser = await api.auth.register({
+        email: cleanEmail,
+        password: formData.password,
         name: fullName,
+        type: role,
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
-        email: cleanEmail,
-        password: hashedPassword, // Store hashed password
         phone: formData.phone,
         address: fullAddress,
         streetAddress: formData.streetAddress,
@@ -210,31 +199,14 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister, onGoogleS
         hourlyRate: role === 'cleaner' ? formData.hourlyRate : undefined,
         experience: role === 'cleaner' ? formData.experience : undefined,
         services: role === 'cleaner' ? services : undefined,
-        rating: role === 'cleaner' ? 5.0 : undefined,
-        reviewCount: role === 'cleaner' ? 0 : undefined,
-        totalEarnings: role === 'cleaner' ? 0 : undefined,
-        isAvailable: role === 'cleaner' ? true : undefined,
-        emailVerified: false,
-        phoneVerified: false,
-        addressVerified: false,
-        authProvider: 'email',
-        profileComplete: true,
-        createdAt: new Date().toISOString()
-      };
-
-      await storage.set(`user:${newUser.id}`, newUser);
-
-      // Create session
-      const session = createSession(newUser.id);
-      await storage.set('session', session);
-      await storage.set('currentUser', newUser);
+      });
 
       // Send verification reminder notification (in-app)
       await NotificationHelpers.verificationReminder(newUser.id);
 
       // Request push permission + send welcome email & push notification
       requestPush();
-      ExternalNotify.verificationReminder(cleanEmail, `${formData.firstName.trim()} ${formData.lastName.trim()}`);
+      ExternalNotify.verificationReminder(cleanEmail, fullName);
 
       // Notify admin about new registration
       notifyAdmin('new_registration', {
@@ -245,7 +217,15 @@ const Register: React.FC<RegisterProps> = ({ role, onBack, onRegister, onGoogleS
 
       onRegister(newUser);
     } catch (err) {
-      setError('An error occurred. Please try again.');
+      if (err instanceof ApiError && err.status === 409) {
+        setError('This email is already registered. Please use a different email or login.');
+      } else if (err instanceof ApiError && err.status === 400) {
+        setError(err.message);
+      } else if (err instanceof ApiError && err.status === 0) {
+        setError('Could not reach the server. Please check your connection.');
+      } else {
+        setError('An error occurred. Please try again.');
+      }
       setIsLoading(false);
     }
   };

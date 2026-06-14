@@ -43,6 +43,8 @@ export interface GoogleUserInfo {
   email: string;
   displayName: string | null;
   photoURL: string | null;
+  /** Firebase ID token — sent to the server, which verifies it before trusting it. */
+  idToken: string;
 }
 
 export async function signInWithGoogle(): Promise<GoogleUserInfo> {
@@ -57,12 +59,14 @@ export async function signInWithGoogle(): Promise<GoogleUserInfo> {
 
   const result = await firebase.auth().signInWithPopup(provider);
   const user = result.user;
+  const idToken = await user.getIdToken();
 
   return {
     uid: user.uid,
     email: user.email,
     displayName: user.displayName,
     photoURL: user.photoURL,
+    idToken,
   };
 }
 

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, CleaningRequest } from '../types';
-import { storage } from '../utils/storage';
+import { api } from '../utils/api';
 import { Button, Card, Badge } from './UI';
 import CreateRequest from './CreateRequest';
 import MyRequests from './MyRequests';
@@ -30,14 +30,12 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) =
 
   const loadData = async () => {
     setIsLoading(true);
-    const keys = await storage.list('request:');
-    let total = 0, active = 0, completed = 0, totalSpent = 0;
-    const items: CleaningRequest[] = [];
-    let currentActive: CleaningRequest | null = null;
+    try {
+      const items = await api.requests.listMine();
+      let total = 0, active = 0, completed = 0, totalSpent = 0;
+      let currentActive: CleaningRequest | null = null;
 
-    for (const key of keys) {
-      const req = await storage.get(key);
-      if (req && req.homeownerId === user.id) {
+      for (const req of items) {
         total++;
         if (['open', 'accepted', 'in_progress'].includes(req.status)) {
           active++;
@@ -49,13 +47,15 @@ const HomeownerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) =
           completed++;
           totalSpent += req.totalAmount || 0;
         }
-        items.push(req);
       }
+      setStats({ total, active, completed, totalSpent });
+      setActiveRequest(currentActive);
+      setRecentRequests(items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5));
+    } catch (err) {
+      console.error('load homeowner data error:', err);
+    } finally {
+      setIsLoading(false);
     }
-    setStats({ total, active, completed, totalSpent });
-    setActiveRequest(currentActive);
-    setRecentRequests(items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5));
-    setIsLoading(false);
   };
 
   useEffect(() => {

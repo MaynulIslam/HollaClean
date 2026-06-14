@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, CleaningRequest } from '../types';
-import { storage } from '../utils/storage';
+import { api } from '../utils/api';
 import { Button, Card, Badge } from './UI';
 import RequestsFeed from './RequestsFeed';
 import MyJobs from './MyJobs';
@@ -35,39 +35,42 @@ const CleanerDashboard: React.FC<Props> = ({ user, onLogout, onUserUpdate }) => 
 
   const loadStats = async () => {
     setIsLoading(true);
-    const keys = await storage.list('request:');
-    let avail = 0, acc = 0, completed = 0, mon = 0, weeklyHours = 0;
-    let currentActiveJob: CleaningRequest | null = null;
-    const now = new Date();
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    try {
+      const [openReqs, myJobs] = await Promise.all([
+        api.requests.listOpen(),
+        api.requests.listJobs(),
+      ]);
 
-    for (const key of keys) {
-      const req = await storage.get(key);
-      if (req) {
-        if (req.status === 'open') avail++;
-        if (req.acceptedBy === user.id) {
-          if (['accepted', 'in_progress'].includes(req.status)) {
-            acc++;
-            if (req.status === 'in_progress' && (!currentActiveJob || new Date(req.acceptedAt) > new Date(currentActiveJob.acceptedAt))) {
-              currentActiveJob = req;
-            }
+      let acc = 0, completed = 0, mon = 0, weeklyHours = 0;
+      let currentActiveJob: CleaningRequest | null = null;
+      const now = new Date();
+      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+      for (const req of myJobs) {
+        if (['accepted', 'in_progress'].includes(req.status)) {
+          acc++;
+          if (req.status === 'in_progress' && (!currentActiveJob || new Date(req.acceptedAt!) > new Date(currentActiveJob.acceptedAt!))) {
+            currentActiveJob = req;
           }
-          if (req.status === 'completed') {
-            completed++;
-            const compDate = new Date(req.completedAt!);
-            if (compDate.getMonth() === now.getMonth() && compDate.getFullYear() === now.getFullYear()) {
-              mon += (Number(req.cleanerPayout) || 0);
-            }
-            if (compDate >= weekAgo) {
-              weeklyHours += req.hours || 0;
-            }
+        }
+        if (req.status === 'completed') {
+          completed++;
+          const compDate = new Date(req.completedAt!);
+          if (compDate.getMonth() === now.getMonth() && compDate.getFullYear() === now.getFullYear()) {
+            mon += (Number(req.cleanerPayout) || 0);
+          }
+          if (compDate >= weekAgo) {
+            weeklyHours += req.hours || 0;
           }
         }
       }
+      setStats({ available: openReqs.length, accepted: acc, completed, monthly: mon, weeklyHours });
+      setActiveJob(currentActiveJob);
+    } catch (err) {
+      console.error('load cleaner stats error:', err);
+    } finally {
+      setIsLoading(false);
     }
-    setStats({ available: avail, accepted: acc, completed, monthly: mon, weeklyHours });
-    setActiveJob(currentActiveJob);
-    setIsLoading(false);
   };
 
   useEffect(() => {

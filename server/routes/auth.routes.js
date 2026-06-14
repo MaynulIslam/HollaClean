@@ -46,8 +46,11 @@ router.post('/register', async (req, res) => {
         experience: rest.experience != null ? Number(rest.experience) : null,
         services: Array.isArray(rest.services) ? rest.services : [],
         address: rest.address || null,
+        streetAddress: rest.streetAddress || null,
+        apartment: rest.apartment || null,
         city: rest.city || null,
         province: rest.province || null,
+        country: rest.country || 'Canada',
       },
     });
 

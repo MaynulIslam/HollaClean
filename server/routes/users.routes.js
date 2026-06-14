@@ -83,6 +83,19 @@ router.patch('/:id', requireAuth, async (req, res) => {
       }
     }
 
+    // Allow choosing homeowner/cleaner exactly once — only while the profile is
+    // still being completed (e.g. right after Google sign-up). After that the
+    // account type is fixed and cannot be changed via this endpoint.
+    if (body.type !== undefined && ['homeowner', 'cleaner'].includes(body.type)) {
+      const current = await prisma.user.findUnique({
+        where: { id: req.params.id },
+        select: { profileComplete: true },
+      });
+      if (current && current.profileComplete === false) {
+        data.type = body.type;
+      }
+    }
+
     if (Object.keys(data).length === 0) {
       return res.status(400).json({ error: 'No editable fields supplied' });
     }

@@ -125,7 +125,12 @@ router.post('/', requireAuth, async (req, res) => {
         numberOfOtherRooms: b.numberOfOtherRooms != null ? Number(b.numberOfOtherRooms) : null,
         hasPets: b.hasPets != null ? Boolean(b.hasPets) : null,
         // Money is intentionally NOT set here — it's computed when a cleaner with
-        // a known hourlyRate accepts the job.
+        // a known hourlyRate accepts the job. We DO record the upfront payment
+        // reference if the homeowner prepaid (the amount itself is reconciled
+        // server-side via Stripe, never trusted from the client).
+        paymentIntentId: b.paymentIntentId || null,
+        paymentStatus: b.paymentIntentId ? 'paid' : 'pending',
+        paidAt: b.paymentIntentId ? new Date() : null,
       },
       include: WITH_PARTIES,
     });
@@ -259,10 +264,12 @@ router.post('/:id/accept', requireAuth, async (req, res) => {
   }
 });
 
-// Allowed status transitions, enforced server-side.
+// Allowed status transitions, enforced server-side. The cleaner marks a job
+// done directly from in_progress (payment was collected up front), so we allow
+// in_progress -> completed in addition to the awaiting_payment path.
 const TRANSITIONS = {
   accepted: ['in_progress', 'cancelled'],
-  in_progress: ['awaiting_payment', 'cancelled'],
+  in_progress: ['awaiting_payment', 'completed', 'cancelled'],
   awaiting_payment: ['completed'],
   open: ['cancelled'],
 };
@@ -289,7 +296,31 @@ router.patch('/:id/status', requireAuth, async (req, res) => {
     }
 
     const data = { status: next };
-    if (next === 'completed') data.completedAt = new Date();
+
+    // On completion, finalize money server-side: mark paid, queue the payout for
+    // admin disbursement, and credit the cleaner's lifetime earnings. All amounts
+    // come from the DB row (set when the cleaner accepted), never from the client.
+    if (next === 'completed') {
+      data.completedAt = new Date();
+      data.paymentStatus = 'paid';
+      data.paidAt = r.paidAt || new Date();
+      data.payoutStatus = 'pending';
+      data.payoutAmount = r.cleanerPayout || 0;
+
+      const ops = [
+        prisma.cleaningRequest.update({ where: { id: r.id }, data, include: WITH_PARTIES }),
+      ];
+      if (r.cleanerId && r.cleanerPayout) {
+        ops.push(
+          prisma.user.update({
+            where: { id: r.cleanerId },
+            data: { totalEarnings: { increment: r.cleanerPayout } },
+          })
+        );
+      }
+      const [updated] = await prisma.$transaction(ops);
+      return res.json({ request: serialize(updated) });
+    }
 
     const updated = await prisma.cleaningRequest.update({
       where: { id: r.id },
@@ -300,6 +331,84 @@ router.patch('/:id/status', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('update status error:', err);
     res.status(500).json({ error: 'Failed to update status' });
+  }
+});
+
+// POST /api/requests/:id/release  — the assigned cleaner returns an accepted job
+// to the open marketplace. Blocked once payment has been collected.
+router.post('/:id/release', requireAuth, async (req, res) => {
+  try {
+    if (req.user.type !== 'cleaner') {
+      return res.status(403).json({ error: 'Only cleaners can release jobs' });
+    }
+
+    const r = await prisma.cleaningRequest.findUnique({ where: { id: req.params.id } });
+    if (!r) return res.status(404).json({ error: 'Request not found' });
+    if (r.cleanerId !== req.user.id) {
+      return res.status(403).json({ error: 'You can only release your own job' });
+    }
+    if (r.status !== 'accepted') {
+      return res.status(409).json({ error: 'Only an accepted job can be released' });
+    }
+    if (r.paymentStatus === 'paid' || r.paymentStatus === 'held') {
+      return res.status(409).json({ error: 'Cannot release a job once payment has been collected' });
+    }
+
+    const updated = await prisma.cleaningRequest.update({
+      where: { id: r.id },
+      data: {
+        status: 'open',
+        cleanerId: null,
+        acceptedAt: null,
+        hourlyRate: null,
+        totalAmount: null,
+        taxAmount: null,
+        taxRate: null,
+        platformCommission: null,
+        cleanerPayout: null,
+        paymentStatus: 'pending',
+        locationApprovalStatus: null,
+        locationApprovalRequestedAt: null,
+        cleanerDistanceAtStart: null,
+      },
+      include: WITH_PARTIES,
+    });
+    res.json({ request: serialize(updated) });
+  } catch (err) {
+    console.error('release request error:', err);
+    res.status(500).json({ error: 'Failed to release job' });
+  }
+});
+
+// POST /api/requests/:id/location-approval  — the assigned cleaner asks an admin
+// to approve starting a job from beyond the allowed proximity radius.
+router.post('/:id/location-approval', requireAuth, async (req, res) => {
+  try {
+    if (req.user.type !== 'cleaner') {
+      return res.status(403).json({ error: 'Only cleaners can request location approval' });
+    }
+
+    const r = await prisma.cleaningRequest.findUnique({ where: { id: req.params.id } });
+    if (!r) return res.status(404).json({ error: 'Request not found' });
+    if (r.cleanerId !== req.user.id) {
+      return res.status(403).json({ error: 'You can only request approval for your own job' });
+    }
+
+    const distance = req.body && req.body.distance != null ? Number(req.body.distance) : null;
+
+    const updated = await prisma.cleaningRequest.update({
+      where: { id: r.id },
+      data: {
+        locationApprovalStatus: 'pending',
+        locationApprovalRequestedAt: new Date(),
+        cleanerDistanceAtStart: distance,
+      },
+      include: WITH_PARTIES,
+    });
+    res.json({ request: serialize(updated) });
+  } catch (err) {
+    console.error('location approval error:', err);
+    res.status(500).json({ error: 'Failed to request location approval' });
   }
 });
 

@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import { Button, Card, Input } from './UI';
-import { storage } from '../utils/storage';
+import { api } from '../utils/api';
 import StripeConnectSetup from './StripeConnectSetup';
 import VerificationBadge from './VerificationBadge';
 import OtpVerificationModal from './OtpVerificationModal';
@@ -116,18 +116,45 @@ const ProfileView: React.FC<Props> = ({ user, onBack, onLogout, onUserUpdate }) 
       ...(addressChanged ? { addressVerified: false } : {}),
     };
 
-    await storage.set(`user:${user.id}`, updatedUser);
-    await storage.set('currentUser', updatedUser);
-    if (onUserUpdate) onUserUpdate(updatedUser as User);
+    // Persist the editable profile fields. The server filters to its allow-list,
+    // so non-editable fields (type, email, ratings, etc.) are ignored.
+    const patch: Partial<User> = {
+      name: updatedName,
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      phone: formData.phone,
+      address: updatedAddress,
+      streetAddress: formData.streetAddress,
+      apartment: formData.apartment,
+      city: formData.city,
+      province: formData.province,
+      country: formData.country,
+      photoURL: formData.photoURL,
+    };
+    if (user.type === 'cleaner') {
+      patch.bio = formData.bio;
+      patch.hourlyRate = formData.hourlyRate;
+      patch.experience = formData.experience;
+      patch.services = formData.services;
+      patch.isAvailable = formData.isAvailable;
+    }
 
-    setIsSaving(false);
-    setIsEditing(false);
+    try {
+      const saved = await api.users.update(user.id, patch);
+      if (onUserUpdate) onUserUpdate({ ...updatedUser, ...saved } as User);
+    } catch (err) {
+      console.error('save profile error:', err);
+      alert('Could not save your profile. Please try again.');
+    } finally {
+      setIsSaving(false);
+      setIsEditing(false);
+    }
   };
 
   const handleVerification = async (field: 'emailVerified' | 'phoneVerified' | 'addressVerified') => {
+    // NOTE: verification flags are not server-editable yet (no OTP backend), so
+    // this is an optimistic, client-side trust signal only.
     const updatedUser = { ...user, [field]: true };
-    await storage.set(`user:${user.id}`, updatedUser);
-    await storage.set('currentUser', updatedUser);
     if (onUserUpdate) onUserUpdate(updatedUser);
     setVerifyModalType(null);
     setShowAddressConfirm(false);
@@ -196,8 +223,26 @@ const ProfileView: React.FC<Props> = ({ user, onBack, onLogout, onUserUpdate }) 
     }
 
     const updatedUser = { ...user, ...updates };
-    await storage.set(`user:${user.id}`, updatedUser);
-    await storage.set('currentUser', updatedUser);
+
+    // Persist only the server-editable parts (phone / address fields). Email and
+    // the *Verified flags are not self-editable server-side; keep them optimistic.
+    const patch: Partial<User> = {};
+    if (editingVerification === 'phone' && updates.phone) {
+      patch.phone = updates.phone;
+    } else if (editingVerification === 'address') {
+      patch.streetAddress = updates.streetAddress;
+      patch.apartment = updates.apartment;
+      patch.city = updates.city;
+      patch.province = updates.province;
+      patch.country = updates.country;
+      patch.address = updates.address;
+    }
+
+    try {
+      if (Object.keys(patch).length > 0) await api.users.update(user.id, patch);
+    } catch (err) {
+      console.error('save verification edit error:', err);
+    }
     if (onUserUpdate) onUserUpdate(updatedUser as User);
     setEditingVerification(null);
   };
