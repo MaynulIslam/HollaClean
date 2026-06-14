@@ -118,7 +118,7 @@ export const CONFIG = {
   server: {
     apiUrl: (process.env.VITE_API_URL || process.env.API_URL || 'http://localhost:3001') + '/api',
     // Stripe publishable key - set this in production
-    stripePublishableKey: (typeof process !== 'undefined' && process.env?.STRIPE_PUBLISHABLE_KEY) || '',
+    stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
   },
 
   // Contact and support
