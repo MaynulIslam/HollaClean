@@ -10,7 +10,9 @@ const app = express();
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-const allowedOrigins = process.env.NODE_ENV === 'production'
+const isProduction = process.env.NODE_ENV === 'production';
+
+const allowedOrigins = isProduction
   ? [process.env.FRONTEND_URL].filter(Boolean)
   : [
       process.env.FRONTEND_URL || 'http://localhost:3000',
@@ -19,7 +21,20 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
       'http://0.0.0.0:3000',
     ];
 
-app.use(cors({ origin: allowedOrigins, credentials: true }));
+// In development, also allow any localhost or private-LAN origin (so the app
+// can be opened from a phone/another device on the same network during testing).
+// Production stays locked to FRONTEND_URL only.
+const devLanOrigin = /^http:\/\/(localhost|127\.0\.0\.1|(10|192\.168|172\.(1[6-9]|2\d|3[01]))\.[\d.]+):\d+$/;
+
+function corsOrigin(origin, callback) {
+  // Allow non-browser requests (curl, server-to-server) with no Origin header.
+  if (!origin) return callback(null, true);
+  if (allowedOrigins.includes(origin)) return callback(null, true);
+  if (!isProduction && devLanOrigin.test(origin)) return callback(null, true);
+  return callback(new Error(`Origin ${origin} not allowed by CORS`));
+}
+
+app.use(cors({ origin: corsOrigin, credentials: true }));
 
 app.use((req, res, next) => {
   if (req.originalUrl === '/api/webhooks/stripe') {
