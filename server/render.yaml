@@ -22,3 +22,5 @@ services:
         value: 20
       - key: ADMIN_SECRET
         sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { CleaningRequest, User, ServiceOffer } from '../types';
-import { storage } from '../utils/storage';
+import { api } from '../utils/api';
 import { Card, Badge, Button, Input } from './UI';
 import AdminFinance from './AdminFinance';
 import AdminSettings from './AdminSettings';
@@ -86,40 +86,42 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
   };
 
   const loadAll = async () => {
-    const rKeys = await storage.list('request:');
-    const uKeys = await storage.list('user:');
-    const savedServices = await storage.get('config:services') || [];
-    setServices(savedServices);
-    
-    let rev = 0;
-    const allReqs: CleaningRequest[] = [];
-    for (const k of rKeys) {
-      const r = await storage.get(k);
-      if (r) {
-        allReqs.push(r);
+    // The admin console now reads the shared database (via the admin API) rather
+    // than this one browser's localStorage, so it sees every user and request
+    // across the whole platform.
+    try {
+      const [allReqs, allUsers, savedServices] = await Promise.all([
+        api.admin.listRequests(),
+        api.admin.listUsers(),
+        api.admin.listServices(),
+      ]);
+      setServices(savedServices);
+
+      let rev = 0;
+      for (const r of allReqs) {
         if (r.status === 'completed') rev += (Number(r.platformCommission) || 0);
       }
-    }
 
-    const allHomeowners: User[] = [];
-    const allCleaners: User[] = [];
-    for (const k of uKeys) {
-      const u = await storage.get(k);
-      if (u) {
-        if (u.type === 'homeowner') allHomeowners.push(u);
-        if (u.type === 'cleaner') allCleaners.push(u);
-      }
-    }
+      const allHomeowners = allUsers.filter((u) => u.type === 'homeowner');
+      const allCleaners = allUsers.filter((u) => u.type === 'cleaner');
 
-    setHomeowners(allHomeowners);
-    setCleaners(allCleaners);
-    setStats({ 
-      revenue: rev, 
-      requests: allReqs.length, 
-      homeowners: allHomeowners.length, 
-      cleaners: allCleaners.length 
-    });
-    setRequests(allReqs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      setHomeowners(allHomeowners);
+      setCleaners(allCleaners);
+      setStats({
+        revenue: rev,
+        requests: allReqs.length,
+        homeowners: allHomeowners.length,
+        cleaners: allCleaners.length,
+      });
+      // The API already returns requests newest-first, but sort defensively.
+      setRequests(
+        [...allReqs].sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        )
+      );
+    } catch (err: any) {
+      alert(`Failed to load admin data: ${err.message || err}`);
+    }
   };
 
   const loadReminders = async () => {
@@ -155,28 +157,33 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
       return;
     }
 
-    let updated: ServiceOffer[];
-    if (serviceModalMode === 'add') {
-      const s: ServiceOffer = {
-        id: `service_${Date.now()}`,
-        name: editingService.name,
-        basePrice: editingService.basePrice!
-      };
-      updated = [...services, s];
-    } else {
-      updated = services.map(s => s.id === editingService.id ? (editingService as ServiceOffer) : s);
+    try {
+      if (serviceModalMode === 'add') {
+        await api.admin.createService({
+          name: editingService.name,
+          basePrice: editingService.basePrice!,
+        });
+      } else if (editingService.id) {
+        await api.admin.updateService(editingService.id, {
+          name: editingService.name,
+          basePrice: editingService.basePrice,
+        });
+      }
+      await loadAll();
+      setIsServiceModalOpen(false);
+    } catch (err: any) {
+      alert(`Failed to save service: ${err.message || err}`);
     }
-
-    setServices(updated);
-    await storage.set('config:services', updated);
-    setIsServiceModalOpen(false);
   };
 
   const handleDeleteService = async (id: string) => {
     if (window.confirm("Are you sure you want to delete this service? It will no longer be available for new requests.")) {
-      const updated = services.filter(s => s.id !== id);
-      setServices(updated);
-      await storage.set('config:services', updated);
+      try {
+        await api.admin.deleteService(id);
+        await loadAll();
+      } catch (err: any) {
+        alert(`Failed to delete service: ${err.message || err}`);
+      }
     }
   };
 
@@ -196,19 +203,29 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
     const updatedUser = {
       ...editingUser,
       name: fullName,
-      address: fullAddress
+      address: fullAddress,
     };
 
-    await storage.set(`user:${editingUser.id}`, updatedUser);
-    setIsUserModalOpen(false);
-    loadAll();
+    // The server allow-lists editable columns and ignores the rest (including
+    // the client-only firstName/lastName, which we've already folded into name).
+    try {
+      await api.admin.updateUser(editingUser.id, updatedUser);
+      setIsUserModalOpen(false);
+      await loadAll();
+    } catch (err: any) {
+      alert(`Failed to save user: ${err.message || err}`);
+    }
   };
 
   const handleDeleteUser = async (id: string) => {
     if (window.confirm("Are you sure you want to delete this user account? This action cannot be undone.")) {
-      const key = id.startsWith('user:') ? id : `user:${id}`;
-      await storage.delete(key);
-      await loadAll();
+      const cleanId = id.startsWith('user:') ? id.slice('user:'.length) : id;
+      try {
+        await api.admin.deleteUser(cleanId);
+        await loadAll();
+      } catch (err: any) {
+        alert(`Failed to delete user: ${err.message || err}`);
+      }
     }
   };
 
@@ -261,26 +278,36 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
 
   const handleSaveRequest = async () => {
     if (!editingRequest.id) return;
-    // Recalculate cleaner payout if total changed
+    // The server stores admin money overrides as sent and derives
+    // commission/payout from totalAmount when only the total is supplied, so we
+    // just forward the edited total and let the backend recompute the split.
     const totalAmount = Number(editingRequest.totalAmount) || 0;
-    const commission = totalAmount * 0.20;
-    const updatedRequest = {
-      ...editingRequest,
-      totalAmount,
-      platformCommission: commission,
-      cleanerPayout: totalAmount - commission,
-    };
-    await storage.set(`request:${editingRequest.id}`, updatedRequest);
-    setIsRequestModalOpen(false);
-    await loadAll();
+    try {
+      await api.admin.updateRequest(editingRequest.id, {
+        serviceType: editingRequest.serviceType,
+        date: editingRequest.date,
+        time: editingRequest.time,
+        hours: editingRequest.hours,
+        address: editingRequest.address,
+        status: editingRequest.status,
+        paymentStatus: editingRequest.paymentStatus,
+        hourlyRate: editingRequest.hourlyRate,
+        totalAmount,
+      });
+      setIsRequestModalOpen(false);
+      await loadAll();
+    } catch (err: any) {
+      alert(`Failed to save request: ${err.message || err}`);
+    }
   };
 
   const handleCancelRequest = async (id: string) => {
     if (!window.confirm('Are you sure you want to cancel this request? This cannot be undone.')) return;
-    const req = await storage.get(`request:${id}`);
-    if (req) {
-      await storage.set(`request:${id}`, { ...req, status: 'cancelled' });
+    try {
+      await api.admin.updateRequest(id, { status: 'cancelled' });
       await loadAll();
+    } catch (err: any) {
+      alert(`Failed to cancel request: ${err.message || err}`);
     }
   };
 
@@ -551,11 +578,11 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
                                           <button
                                             onClick={async (e) => {
                                               e.stopPropagation();
-                                              const updated = await storage.get(`request:${req.id}`);
-                                              if (updated) {
-                                                updated.locationApprovalStatus = 'approved';
-                                                await storage.set(`request:${req.id}`, updated);
+                                              try {
+                                                await api.admin.locationApproval(req.id, 'approved');
                                                 loadAll();
+                                              } catch (err: any) {
+                                                alert(`Failed to approve: ${err.message || err}`);
                                               }
                                             }}
                                             className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 transition-colors flex items-center gap-1"
@@ -565,11 +592,11 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
                                           <button
                                             onClick={async (e) => {
                                               e.stopPropagation();
-                                              const updated = await storage.get(`request:${req.id}`);
-                                              if (updated) {
-                                                updated.locationApprovalStatus = 'denied';
-                                                await storage.set(`request:${req.id}`, updated);
+                                              try {
+                                                await api.admin.locationApproval(req.id, 'denied');
                                                 loadAll();
+                                              } catch (err: any) {
+                                                alert(`Failed to deny: ${err.message || err}`);
                                               }
                                             }}
                                             className="px-3 py-1.5 bg-red-500 text-white text-xs font-bold rounded-lg hover:bg-red-600 transition-colors flex items-center gap-1"
@@ -1190,23 +1217,20 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
           if (!window.confirm(`Disburse $${payoutAmt.toFixed(2)} to ${req.cleanerName}?`)) return;
 
           try {
-            // Find cleaner's Stripe account
-            const cleaner = await storage.get(`user:${req.acceptedBy}`);
-            if (cleaner?.stripeAccountId) {
+            // Move the money in Stripe (best-effort; the cleaner may not have a
+            // connected account yet). Then record the disbursement in the DB.
+            try {
               await transferToCleaner({
                 paymentIntentId: req.paymentIntentId,
                 cleanerId: req.acceptedBy!,
                 amount: payoutAmt,
               });
+            } catch (transferErr: any) {
+              // Surface but don't abort — admin may be tracking an off-Stripe payout.
+              console.warn('Stripe transfer skipped/failed:', transferErr?.message || transferErr);
             }
 
-            // Mark as disbursed
-            const updated = await storage.get(`request:${req.id}`);
-            updated.payoutStatus = 'disbursed';
-            updated.payoutDisbursedAt = new Date().toISOString();
-            updated.payoutAmount = payoutAmt;
-            await storage.set(`request:${req.id}`, updated);
-
+            await api.admin.payout(req.id, { action: 'disburse' });
             loadAll();
             alert(`Payout of $${payoutAmt.toFixed(2)} disbursed to ${req.cleanerName}`);
           } catch (err: any) {
@@ -1220,25 +1244,28 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
           const amt = parseFloat(newAmount);
           if (isNaN(amt) || amt <= 0) { alert('Invalid amount'); return; }
 
-          const req = await storage.get(`request:${reqId}`);
-          req.payoutAmount = Math.round(amt * 100) / 100;
-          await storage.set(`request:${reqId}`, req);
-          loadAll();
+          try {
+            await api.admin.payout(reqId, { action: 'adjust', amount: amt });
+            loadAll();
+          } catch (err: any) {
+            alert(`Failed to adjust payout: ${err.message || err}`);
+          }
         };
 
         const handleEmailCleaner = async (req: CleaningRequest) => {
-          if (!req.acceptedBy) return;
-          const cleaner = await storage.get(`user:${req.acceptedBy}`);
-          if (!cleaner?.email) { alert('Cleaner email not found'); return; }
+          // The serialized request now carries the cleaner's email, so we no
+          // longer need a separate user lookup.
+          const cleanerEmail = req.cleanerEmail;
+          if (!cleanerEmail) { alert('Cleaner email not found'); return; }
 
           const payoutAmt = Number(req.payoutAmount) || Number(req.cleanerPayout) || 0;
           await sendEmail(
-            cleaner.email,
-            cleaner.name || 'Cleaner',
+            cleanerEmail,
+            req.cleanerName || 'Cleaner',
             `[HollaClean] Your payout of $${payoutAmt.toFixed(2)} is being processed`,
-            `Hi ${cleaner.name},\n\nYour payout of $${payoutAmt.toFixed(2)} for the ${req.serviceType} job (${req.homeownerName}) is being processed.\n\nYou will receive it in your bank account within 2 business days.\n\nThank you for being a HollaClean professional!\n\n— HollaClean Team`
+            `Hi ${req.cleanerName},\n\nYour payout of $${payoutAmt.toFixed(2)} for the ${req.serviceType} job (${req.homeownerName}) is being processed.\n\nYou will receive it in your bank account within 2 business days.\n\nThank you for being a HollaClean professional!\n\n— HollaClean Team`
           );
-          alert(`Email sent to ${cleaner.email}`);
+          alert(`Email sent to ${cleanerEmail}`);
         };
 
         return (

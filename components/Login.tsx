@@ -1,9 +1,8 @@
 
 import React, { useState } from 'react';
 import { Button, Input, Card } from './UI';
-import { storage } from '../utils/storage';
+import { api, ApiError } from '../utils/api';
 import { User } from '../types';
-import { verifyPassword, createSession } from '../utils/auth';
 import {
   ArrowLeft, Lock, Mail, Eye, EyeOff, Sparkles,
   ShieldCheck, CheckCircle, Home, Briefcase
@@ -47,37 +46,17 @@ const Login: React.FC<LoginProps> = ({ onBack, onLogin, onGoogleSignIn }) => {
 
     try {
       const cleanEmail = email.trim().toLowerCase();
-      const keys = await storage.list('user:');
-      let foundUser: User | null = null;
-
-      for (const key of keys) {
-        const user = await storage.get(key);
-        if (user && user.email.toLowerCase() === cleanEmail) {
-          foundUser = user;
-          break;
-        }
-      }
-
-      if (!foundUser) {
-        setError('Invalid email or password. Please try again.');
-        setIsLoading(false);
-        return;
-      }
-
-      const isValidPassword = await verifyPassword(password, foundUser.password ?? '');
-
-      if (isValidPassword) {
-        // Create a session
-        const session = createSession(foundUser.id);
-        await storage.set('session', session);
-        await storage.set('currentUser', foundUser);
-        onLogin(foundUser);
-      } else {
-        setError('Invalid email or password. Please try again.');
-        setIsLoading(false);
-      }
+      // The server verifies the password (bcrypt) and returns a JWT + user.
+      const user = await api.auth.login(cleanEmail, password);
+      onLogin(user);
     } catch (err) {
-      setError('An error occurred. Please try again.');
+      if (err instanceof ApiError && err.status === 401) {
+        setError('Invalid email or password. Please try again.');
+      } else if (err instanceof ApiError && err.status === 0) {
+        setError('Could not reach the server. Please check your connection.');
+      } else {
+        setError('An error occurred. Please try again.');
+      }
       setIsLoading(false);
     }
   };

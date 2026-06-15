@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { User, CleaningRequest, ServiceOffer } from '../types';
-import { storage } from '../utils/storage';
+import { User, CleaningRequest } from '../types';
+import { api } from '../utils/api';
 import { getPlatformConfig } from '../utils/config';
 import { Button, Card, Input } from './UI';
 import PaymentCheckout from './PaymentCheckout';
@@ -136,10 +136,14 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
 
   useEffect(() => {
     const loadServices = async () => {
-      const services: ServiceOffer[] = await storage.get('config:services') || [];
-      if (services.length > 0) {
-        setServiceOptions(services.map(s => s.name));
-        setFormData(prev => ({ ...prev, serviceType: services[0].name }));
+      try {
+        const services = await api.services.list();
+        if (services.length > 0) {
+          setServiceOptions(services.map((s) => s.name));
+          setFormData(prev => ({ ...prev, serviceType: services[0].name }));
+        }
+      } catch {
+        /* leave service options empty if the catalog can't be loaded */
       }
     };
     loadServices();
@@ -215,72 +219,50 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
 
   const allRoomImagesValid = individualRooms.length === 0 || individualRooms.every(r => (roomImages[r.key]?.length || 0) > 0);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 800));
-
-    const platformCfg = getPlatformConfig();
-    const hourlyRateAvg = 35;
+  // Build the create payload from the form. Money is intentionally NOT included —
+  // the server computes pricing from the cleaner's hourly rate when the job is
+  // accepted. We only send the homeowner's request details.
+  const buildCreatePayload = () => {
     const safeHours = Number(formData.hours) || 3;
-    const subtotal = hourlyRateAvg * safeHours;
-    const taxAmount = Math.round(subtotal * platformCfg.pricing.taxRate * 100) / 100;
-    const totalAmount = Math.round((subtotal + taxAmount) * 100) / 100;
-    const commission = Math.round(subtotal * platformCfg.pricing.platformCommissionRate * 100) / 100;
-
     const sqftRaw = Number(formData.squareFootage);
     const sqft = formData.squareFootage && !isNaN(sqftRaw) && sqftRaw > 0 ? sqftRaw : undefined;
-
     const bedrooms = Number(formData.numberOfBedrooms) || 0;
     const bathrooms = Number(formData.numberOfBathrooms) || 0;
     const kitchens = Number(formData.numberOfKitchens) || 0;
     const livingRooms = Number(formData.numberOfLivingRooms) || 0;
     const otherRooms = Number(formData.numberOfOtherRooms) || 0;
-    const totalRooms = bedrooms + bathrooms + kitchens + livingRooms + otherRooms;
 
-    const request: CleaningRequest = {
-      id: `req_${Date.now()}`,
-      homeownerId: user.id,
-      homeownerName: user.name,
-      homeownerPhone: user.phone,
-      homeownerEmail: user.email,
+    return {
       serviceType: formData.serviceType,
       date: formData.date,
       time: formData.time,
       hours: safeHours,
       address: formData.address,
       instructions: formData.instructions,
+      roomImages,
+      images: (Object.values(roomImages) as string[][]).flat(),
       ...(sqft ? { squareFootage: sqft } : {}),
       ...(formData.floorType ? { floorType: formData.floorType } : {}),
-      ...(totalRooms > 0 ? { numberOfRooms: totalRooms } : {}),
       ...(bedrooms > 0 ? { numberOfBedrooms: bedrooms } : {}),
       ...(bathrooms > 0 ? { numberOfBathrooms: bathrooms } : {}),
       ...(kitchens > 0 ? { numberOfKitchens: kitchens } : {}),
       ...(livingRooms > 0 ? { numberOfLivingRooms: livingRooms } : {}),
       ...(otherRooms > 0 ? { numberOfOtherRooms: otherRooms } : {}),
       ...(formData.hasPets ? { hasPets: true } : {}),
-      roomImages,
-      images: (Object.values(roomImages) as string[][]).flat(),
-      status: 'open',
-      acceptedBy: null,
-      cleanerName: null,
-      cleanerPhone: null,
-      hourlyRate: null,
-      acceptedAt: null,
-      completedAt: null,
-      totalAmount,
-      platformCommission: commission,
-      cleanerPayout: Math.round((subtotal - commission) * 100) / 100,
-      taxAmount,
-      taxRate: platformCfg.pricing.taxRate,
-      paymentStatus: 'pending',
-      createdAt: new Date().toISOString()
     };
+  };
 
-    await storage.set(`request:${request.id}`, request);
-    onSuccess();
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      await api.requests.create(buildCreatePayload());
+      onSuccess();
+    } catch (err) {
+      console.error('create request error:', err);
+      alert('Could not post your request. Please try again.');
+      setIsSubmitting(false);
+    }
   };
 
   // Smart estimate: base on hours, adjust if square footage provided
@@ -350,10 +332,16 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
   }, [formData, roomImages, user]);
 
   const handlePaymentSuccess = async (paymentIntentId: string) => {
-    // Save the request with payment completed
-    const request = { ...previewRequest, paymentStatus: 'paid' as const, paymentIntentId, paidAt: new Date().toISOString() };
-    await storage.set(`request:${request.id}`, request);
-    onSuccess();
+    // Create the request, recording the upfront payment reference. The server
+    // marks it paid; the actual amount is reconciled server-side via Stripe and
+    // is never trusted from the client.
+    try {
+      await api.requests.create({ ...buildCreatePayload(), paymentIntentId });
+      onSuccess();
+    } catch (err) {
+      console.error('create paid request error:', err);
+      alert('Payment succeeded but we could not post your request. Please contact support.');
+    }
   };
 
   const [imageError, setImageError] = useState('');

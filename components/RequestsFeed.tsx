@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, CleaningRequest } from '../types';
-import { storage } from '../utils/storage';
+import { api, ApiError } from '../utils/api';
 import { Card, Button, Badge } from './UI';
 import VerificationBadge from './VerificationBadge';
 import { NotificationHelpers } from '../utils/notifications';
@@ -149,15 +149,13 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
   }, [cleanerPosition, requests]);
 
   const loadFeed = async () => {
-    const keys = await storage.list('request:');
-    const items: CleaningRequest[] = [];
-    const verMap: Record<string, { email: boolean; phone: boolean; address: boolean }> = {};
-    for (const key of keys) {
-      const req = await storage.get(key);
-      if (req && req.status === 'open') {
-        items.push(req);
-        if (!verMap[req.homeownerId]) {
-          const homeowner = await storage.get(`user:${req.homeownerId}`);
+    try {
+      const items = await api.requests.listOpen();
+      const verMap: Record<string, { email: boolean; phone: boolean; address: boolean }> = {};
+      for (const req of items) {
+        if (verMap[req.homeownerId]) continue;
+        try {
+          const homeowner = await api.users.get(req.homeownerId);
           if (homeowner) {
             verMap[req.homeownerId] = {
               email: !!homeowner.emailVerified,
@@ -165,12 +163,17 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
               address: !!homeowner.addressVerified,
             };
           }
+        } catch {
+          // Non-fatal: a missing homeowner just means no verification badges.
         }
       }
+      setRequests(items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      setHomeownerVerifications(verMap);
+    } catch (err) {
+      console.error('load feed error:', err);
+    } finally {
+      setLoading(false);
     }
-    setRequests(items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-    setHomeownerVerifications(verMap);
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -182,56 +185,40 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
   const handleAccept = async (id: string) => {
     setAcceptingId(id);
 
-    // Small delay for UX
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    const req = await storage.get(`request:${id}`);
-    if (req.status !== 'open') {
-      alert("This job was just accepted by another cleaner. Refreshing...");
+    let updated: CleaningRequest;
+    try {
+      // Atomic, race-safe claim on the server. Pricing is computed server-side
+      // from the cleaner's hourly rate — the client never sets money.
+      updated = await api.requests.accept(id);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        alert('This job was just accepted by another cleaner. Refreshing...');
+      } else {
+        console.error('accept job error:', err);
+        alert('Could not accept this job. Please try again.');
+      }
       setAcceptingId(null);
       loadFeed();
       return;
     }
 
-    const rate = Number(cleaner.hourlyRate) || CONFIG.pricing.defaultHourlyRate;
-    const safeHours = Number(req.hours) || 3;
-    const totalAmount = rate * safeHours;
-    const commission = totalAmount * CONFIG.pricing.platformCommissionRate;
-    const payout = totalAmount - commission;
-
-    const updated: CleaningRequest = {
-      ...req,
-      status: 'accepted',
-      acceptedBy: cleaner.id,
-      cleanerName: cleaner.name,
-      cleanerPhone: cleaner.phone,
-      hourlyRate: rate,
-      acceptedAt: new Date().toISOString(),
-      totalAmount,
-      platformCommission: commission,
-      cleanerPayout: payout
-    };
-
-    await storage.set(`request:${id}`, updated);
-
     // Send notification to homeowner that their job was accepted (in-app)
-    await NotificationHelpers.jobAccepted(req.homeownerId, cleaner.name, req.serviceType);
+    await NotificationHelpers.jobAccepted(updated.homeownerId, cleaner.name, updated.serviceType);
 
     // Send booking confirmation notification (in-app)
-    await NotificationHelpers.bookingConfirmation(req.homeownerId, cleaner.name, req.serviceType, req.date, req.time);
+    await NotificationHelpers.bookingConfirmation(updated.homeownerId, cleaner.name, updated.serviceType, updated.date, updated.time);
 
     // Send email + push notification to homeowner (booking confirmation + job accepted)
-    const homeowner = await storage.get(`user:${req.homeownerId}`);
-    if (homeowner) {
-      ExternalNotify.bookingConfirmation(homeowner.email, homeowner.name || 'Homeowner', cleaner.name, req.serviceType, totalAmount, req.date, req.time);
+    if (updated.homeownerEmail) {
+      ExternalNotify.bookingConfirmation(updated.homeownerEmail, updated.homeownerName || 'Homeowner', cleaner.name, updated.serviceType, updated.totalAmount || 0, updated.date, updated.time);
     }
 
     // Notify admin about accepted job
     notifyAdmin('job_accepted', {
-      serviceType: req.serviceType,
+      serviceType: updated.serviceType,
       cleanerName: cleaner.name,
-      homeownerName: req.homeownerName,
-      requestId: req.id,
+      homeownerName: updated.homeownerName,
+      requestId: updated.id,
     });
 
     setAcceptingId(null);

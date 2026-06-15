@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import { Button, Card, Input } from './UI';
-import { storage } from '../utils/storage';
+import { api } from '../utils/api';
 import StripeConnectSetup from './StripeConnectSetup';
 
 import {
@@ -101,12 +101,39 @@ const ProfileView: React.FC<Props> = ({ user, onBack, onLogout, onUserUpdate }) 
       address: updatedAddress,
     };
 
-    await storage.set(`user:${user.id}`, updatedUser);
-    await storage.set('currentUser', updatedUser);
-    if (onUserUpdate) onUserUpdate(updatedUser as User);
+    // Persist the editable profile fields. The server filters to its allow-list,
+    // so non-editable fields (type, email, ratings, etc.) are ignored.
+    const patch: Partial<User> = {
+      name: updatedName,
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      phone: formData.phone,
+      address: updatedAddress,
+      streetAddress: formData.streetAddress,
+      apartment: formData.apartment,
+      city: formData.city,
+      province: formData.province,
+      country: formData.country,
+      photoURL: formData.photoURL,
+    };
+    if (user.type === 'cleaner') {
+      patch.bio = formData.bio;
+      patch.hourlyRate = formData.hourlyRate;
+      patch.experience = formData.experience;
+      patch.services = formData.services;
+      patch.isAvailable = formData.isAvailable;
+    }
 
-    setIsSaving(false);
-    setIsEditing(false);
+    try {
+      const saved = await api.users.update(user.id, patch);
+      if (onUserUpdate) onUserUpdate({ ...updatedUser, ...saved } as User);
+    } catch (err) {
+      console.error('save profile error:', err);
+      alert('Could not save your profile. Please try again.');
+    } finally {
+      setIsSaving(false);
+      setIsEditing(false);
+    }
   };
 
   const isCleaner = user.type === 'cleaner';

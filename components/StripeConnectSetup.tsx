@@ -9,7 +9,6 @@ import {
   getCleanerBalance,
   ConnectStatus
 } from '../utils/paymentApi';
-import { storage } from '../utils/storage';
 import {
   CreditCard, ExternalLink, CheckCircle, AlertCircle, Loader2,
   Wallet, TrendingUp, DollarSign, Clock, ArrowRight, Shield,
@@ -42,15 +41,6 @@ const StripeConnectSetup: React.FC<StripeConnectSetupProps> = ({ user, onStatusC
       setStatus(connectStatus);
       onStatusChange?.(connectStatus);
 
-      // Persist connect status to user in localStorage
-      if (connectStatus.status !== 'not_started') {
-        const userData = await storage.get(`user:${user.id}`);
-        if (userData && userData.stripeConnectStatus !== connectStatus.status) {
-          userData.stripeConnectStatus = connectStatus.status;
-          await storage.set(`user:${user.id}`, userData);
-        }
-      }
-
       if (connectStatus.status === 'active') {
         const bal = await getCleanerBalance(user.id);
         setBalance(bal);
@@ -74,19 +64,11 @@ const StripeConnectSetup: React.FC<StripeConnectSetupProps> = ({ user, onStatusC
       setError(null);
 
       // Create connect account
-      const { accountId } = await createConnectAccount({
+      await createConnectAccount({
         cleanerId: user.id,
         email: user.email,
         name: user.name
       });
-
-      // Save Stripe account ID to user in localStorage
-      const userData = await storage.get(`user:${user.id}`);
-      if (userData) {
-        userData.stripeAccountId = accountId;
-        userData.stripeConnectStatus = 'pending';
-        await storage.set(`user:${user.id}`, userData);
-      }
 
       // Get onboarding link
       const { url } = await getOnboardingLink(user.id);

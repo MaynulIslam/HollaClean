@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { CleaningRequest, InvoiceType } from '../types';
-import { storage } from '../utils/storage';
+import { api } from '../utils/api';
 import { Card, Badge, Button } from './UI';
 import {
   ArrowLeft, Clock, MapPin, MessageSquare, Phone, Calendar,
@@ -48,28 +48,32 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
 
   const loadRequests = async () => {
     setIsLoading(true);
-    const keys = await storage.list('request:');
-    const myItems: CleaningRequest[] = [];
-    const verMap: Record<string, { email: boolean; phone: boolean; address: boolean }> = {};
-    for (const key of keys) {
-      const req = await storage.get(key);
-      if (req && req.homeownerId === homeownerId) {
-        myItems.push(req);
+    try {
+      const myItems = await api.requests.listMine();
+      const verMap: Record<string, { email: boolean; phone: boolean; address: boolean }> = {};
+      for (const req of myItems) {
         if (req.acceptedBy && !verMap[req.acceptedBy]) {
-          const cleaner = await storage.get(`user:${req.acceptedBy}`);
-          if (cleaner) {
-            verMap[req.acceptedBy] = {
-              email: !!cleaner.emailVerified,
-              phone: !!cleaner.phoneVerified,
-              address: !!cleaner.addressVerified,
-            };
+          try {
+            const cleaner = await api.users.get(req.acceptedBy);
+            if (cleaner) {
+              verMap[req.acceptedBy] = {
+                email: !!cleaner.emailVerified,
+                phone: !!cleaner.phoneVerified,
+                address: !!cleaner.addressVerified,
+              };
+            }
+          } catch {
+            // Non-fatal: missing cleaner just means no verification badges.
           }
         }
       }
+      setRequests(myItems.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      setCleanerVerifications(verMap);
+    } catch (err) {
+      console.error('load my requests error:', err);
+    } finally {
+      setIsLoading(false);
     }
-    setRequests(myItems.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-    setCleanerVerifications(verMap);
-    setIsLoading(false);
   };
 
   useEffect(() => {
@@ -80,11 +84,12 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
 
   const handleCancel = async (id: string) => {
     if (window.confirm("Are you sure you want to cancel this request? This action cannot be undone.")) {
-      const req = await storage.get(`request:${id}`);
-      if (req) {
-        req.status = 'cancelled';
-        await storage.set(`request:${id}`, req);
+      try {
+        await api.requests.setStatus(id, 'cancelled');
         loadRequests();
+      } catch (err) {
+        console.error('cancel request error:', err);
+        alert('Could not cancel this request. Please try again.');
       }
     }
   };

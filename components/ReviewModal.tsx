@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { CleaningRequest, Review } from '../types';
-import { storage } from '../utils/storage';
+import { CleaningRequest } from '../types';
+import { api } from '../utils/api';
 import { Button, Card } from './UI';
 import {
   Star, X, CheckCircle, Sparkles, ThumbsUp, Heart,
@@ -43,36 +43,26 @@ const ReviewModal: React.FC<Props> = ({ request, onClose }) => {
       finalComment = finalComment ? `${finalComment} (${tagsText})` : tagsText;
     }
 
-    const review: Review = {
-      id: `review_${Date.now()}`,
-      requestId: request.id,
-      cleanerId: request.acceptedBy!,
-      homeownerId: request.homeownerId,
-      rating,
-      comment: finalComment,
-      createdAt: new Date().toISOString()
-    };
+    try {
+      // Server records the review and updates the cleaner's average rating
+      await api.reviews.create({
+        requestId: request.id,
+        rating,
+        comment: finalComment,
+      });
 
-    await storage.set(`review:${review.id}`, review);
+      setSubmitted(true);
 
-    // Update cleaner average rating
-    const cleaner = await storage.get(`user:${request.acceptedBy}`);
-    if (cleaner) {
-      const currentRating = cleaner.rating || 5;
-      const count = cleaner.reviewCount || 0;
-      const newRating = ((currentRating * count) + rating) / (count + 1);
-      cleaner.rating = Number(newRating.toFixed(1));
-      cleaner.reviewCount = count + 1;
-      await storage.set(`user:${request.acceptedBy}`, cleaner);
+      // Auto close after showing success
+      setTimeout(() => {
+        onClose();
+      }, 2000);
+    } catch (err: any) {
+      console.error('Review submit error:', err);
+      alert(err.message || 'Failed to submit review. Please try again.');
+    } finally {
+      setSubmitting(false);
     }
-
-    setSubmitting(false);
-    setSubmitted(true);
-
-    // Auto close after showing success
-    setTimeout(() => {
-      onClose();
-    }, 2000);
   };
 
   return (

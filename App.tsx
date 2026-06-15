@@ -1,8 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { storage } from './utils/storage';
-import { User, ServiceOffer } from './types';
-import { isSessionValid, Session, createSession } from './utils/auth';
+import { api } from './utils/api';
+import { User } from './types';
 import { CONFIG } from './utils/config';
 import { initReminderService, checkAndSendReminders } from './utils/reminderService';
 import { signInWithGoogle, signOutFirebase, GoogleUserInfo } from './utils/firebase';
@@ -22,54 +21,46 @@ const App: React.FC = () => {
   const [registerRole, setRegisterRole] = useState<'homeowner' | 'cleaner'>('homeowner');
   const [isLoading, setIsLoading] = useState(true);
   const [googleUserData, setGoogleUserData] = useState<GoogleUserInfo | null>(null);
+  const [pendingUser, setPendingUser] = useState<User | null>(null);
 
   useEffect(() => {
     const initApp = async () => {
-      // Handle Stripe Connect onboarding redirects
+      // Handle Stripe Connect onboarding redirects. The cleaner's connect status
+      // is authoritative on the server (set via the account.updated webhook), so
+      // here we just clean the URL — the fresh user fetched below reflects it.
       const params = new URLSearchParams(window.location.search);
       const stripeSuccess = params.get('stripe_success');
       const stripeRefresh = params.get('stripe_refresh');
       const stripeCleanerId = params.get('cleanerId');
       if ((stripeSuccess || stripeRefresh) && stripeCleanerId) {
-        // Update the cleaner's connect status in storage
-        const userData = await storage.get(`user:${stripeCleanerId}`);
-        if (userData) {
-          userData.stripeConnectStatus = stripeSuccess ? 'active' : 'pending';
-          await storage.set(`user:${stripeCleanerId}`, userData);
-        }
-        // Clean the URL so a refresh doesn't re-trigger this
         window.history.replaceState({}, '', window.location.pathname);
       }
 
-      // Initialize service configuration if not present
-      const existingServices = await storage.get('config:services');
-      if (!existingServices) {
-        await initializeServices();
-      }
+      // The service catalog now lives in the shared database and is fetched on
+      // demand by the screens that need it (see utils/api.ts servicesApi).
 
-      // Check for valid session
-      const session: Session | null = await storage.get('session');
-      if (session && isSessionValid(session)) {
-        const user = await storage.get(`user:${session.userId}`);
+      // Resolve the current user from the stored JWT.
+      try {
+        const user = await api.auth.me();
         if (user) {
-          // If user has incomplete profile (e.g. abandoned Google sign-up), redirect
+          // Incomplete profile (e.g. abandoned Google sign-up) → finish it.
           if (user.profileComplete === false && user.firebaseUid) {
             setGoogleUserData({
               uid: user.firebaseUid,
               email: user.email,
               displayName: user.name || null,
               photoURL: user.photoURL || null,
+              idToken: '',
             });
+            setPendingUser(user);
             setView('profile_completion');
           } else {
             setCurrentUser(user);
             setView('dashboard');
           }
-        } else {
-          await storage.delete('session');
         }
-      } else if (session) {
-        await storage.delete('session');
+      } catch (err) {
+        console.error('Session restore failed:', err);
       }
 
       setIsLoading(false);
@@ -86,51 +77,20 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [currentUser]);
 
-  // Initialize services from config (no hardcoded test users)
-  const initializeServices = async () => {
-    const defaultServices: ServiceOffer[] = CONFIG.services.map((s, idx) => ({
-      id: String(idx + 1),
-      name: s.name,
-      basePrice: s.basePrice
-    }));
-    await storage.set('config:services', defaultServices);
-  };
-
   const handleGoogleSignIn = async () => {
+    // Sign in with Firebase, then hand the ID token to our server, which
+    // verifies it and returns our own user record + JWT (stored by the api).
     const googleUser = await signInWithGoogle();
+    const user = await api.auth.google(googleUser.idToken);
 
-    // Check if this Google user already has a local account
-    const keys = await storage.list('user:');
-    let existingUser: User | null = null;
-
-    for (const key of keys) {
-      const user = await storage.get(key);
-      if (user && (user.firebaseUid === googleUser.uid || user.email?.toLowerCase() === googleUser.email.toLowerCase())) {
-        existingUser = user;
-        break;
-      }
-    }
-
-    if (existingUser && existingUser.profileComplete !== false) {
-      // Returning user with complete profile — go straight to dashboard
-      // Update Firebase UID if not set (linking existing email/password account)
-      if (!existingUser.firebaseUid) {
-        existingUser.firebaseUid = googleUser.uid;
-        existingUser.authProvider = 'google';
-        existingUser.photoURL = googleUser.photoURL || existingUser.photoURL;
-        existingUser.emailVerified = true;
-        await storage.set(`user:${existingUser.id}`, existingUser);
-      }
-
-      const session = createSession(existingUser.id);
-      await storage.set('session', session);
-      await storage.set('currentUser', existingUser);
-      setCurrentUser(existingUser);
-      setView('dashboard');
-    } else {
-      // New user or incomplete profile — needs profile completion
+    if (user.profileComplete === false) {
+      // New or incomplete profile — finish it before entering the app.
       setGoogleUserData(googleUser);
+      setPendingUser(user);
       setView('profile_completion');
+    } else {
+      setCurrentUser(user);
+      setView('dashboard');
     }
   };
 
@@ -140,9 +100,9 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     await signOutFirebase().catch(() => {});
-    await storage.delete('currentUser');
-    await storage.delete('session');
+    api.auth.logout();
     setCurrentUser(null);
+    setPendingUser(null);
     setView('landing');
   };
 
@@ -187,15 +147,19 @@ const App: React.FC = () => {
       onGoogleSignIn={handleGoogleSignIn}
     />;
 
-    if (view === 'profile_completion' && googleUserData) return <ProfileCompletion
+    if (view === 'profile_completion' && googleUserData && pendingUser) return <ProfileCompletion
       googleUser={googleUserData}
+      pendingUser={pendingUser}
       onComplete={(user) => {
         setCurrentUser(user);
         setGoogleUserData(null);
+        setPendingUser(null);
         setView('dashboard');
       }}
       onBack={() => {
         setGoogleUserData(null);
+        setPendingUser(null);
+        api.auth.logout();
         setView('landing');
         signOutFirebase().catch(() => {});
       }}

@@ -5,7 +5,7 @@ import { createPaymentIntent, PaymentBreakdown } from '../utils/paymentApi';
 import { CONFIG, getPlatformConfig } from '../utils/config';
 import {
   CreditCard, Lock, CheckCircle, AlertCircle, Loader2, X,
-  DollarSign, Calendar, Clock, MapPin, Shield
+  DollarSign, Calendar, Clock, MapPin, Shield, Sparkles
 } from 'lucide-react';
 
 interface PaymentCheckoutProps {

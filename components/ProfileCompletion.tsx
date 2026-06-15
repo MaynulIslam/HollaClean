@@ -1,9 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Input } from './UI';
-import { storage } from '../utils/storage';
-import { User, ServiceOffer } from '../types';
-import { createSession } from '../utils/auth';
+import { api } from '../utils/api';
+import { User } from '../types';
 import { CONFIG } from '../utils/config';
 import { GoogleUserInfo } from '../utils/firebase';
 import { requestPushPermission } from '../utils/externalNotifications';
@@ -16,11 +15,13 @@ import {
 
 interface ProfileCompletionProps {
   googleUser: GoogleUserInfo;
+  /** The user record the server created/linked during Google sign-in. */
+  pendingUser: User;
   onComplete: (user: User) => void;
   onBack: () => void;
 }
 
-const ProfileCompletion: React.FC<ProfileCompletionProps> = ({ googleUser, onComplete, onBack }) => {
+const ProfileCompletion: React.FC<ProfileCompletionProps> = ({ googleUser, pendingUser, onComplete, onBack }) => {
   const [step, setStep] = useState(1);
   const [role, setRole] = useState<'homeowner' | 'cleaner' | null>(null);
   const [error, setError] = useState('');
@@ -52,9 +53,13 @@ const ProfileCompletion: React.FC<ProfileCompletionProps> = ({ googleUser, onCom
 
   useEffect(() => {
     const loadServices = async () => {
-      const saved: ServiceOffer[] = await storage.get('config:services') || [];
-      if (saved.length > 0) {
-        setServiceOptions(saved.map(s => s.name));
+      try {
+        const saved = await api.services.list();
+        if (saved.length > 0) {
+          setServiceOptions(saved.map((s) => s.name));
+        }
+      } catch {
+        /* leave defaults in place */
       }
     };
     loadServices();
@@ -132,45 +137,18 @@ const ProfileCompletion: React.FC<ProfileCompletionProps> = ({ googleUser, onCom
     setError('');
 
     try {
-      // Check if there's an existing user with this email (link accounts)
       const cleanEmail = googleUser.email.trim().toLowerCase();
-      const keys = await storage.list('user:');
-      let existingUser: User | null = null;
-
-      for (const key of keys) {
-        const existing = await storage.get(key);
-        if (existing && existing.email?.toLowerCase() === cleanEmail) {
-          existingUser = existing;
-          break;
-        }
-      }
-
       const fullName = `${formData.firstName.trim()} ${formData.lastName.trim()}`;
       const fullAddress = `${formData.streetAddress}${formData.apartment ? ', ' + formData.apartment : ''}, ${formData.city}, ${formData.province}, ${formData.country}`;
 
-      if (existingUser) {
-        // Link Google to existing email/password account
-        existingUser.firebaseUid = googleUser.uid;
-        existingUser.authProvider = 'google';
-        existingUser.photoURL = googleUser.photoURL || undefined;
-        existingUser.emailVerified = true;
-        existingUser.profileComplete = true;
-        await storage.set(`user:${existingUser.id}`, existingUser);
-
-        const session = createSession(existingUser.id);
-        await storage.set('session', session);
-        await storage.set('currentUser', existingUser);
-        onComplete(existingUser);
-        return;
-      }
-
-      const newUser: User = {
-        id: `user_${Date.now()}`,
+      // The account already exists on the server (created/linked during Google
+      // sign-in). Here we just complete the profile: pick a role, fill in
+      // contact/address (+ cleaner details) and flip profileComplete.
+      const updated = await api.users.update(pendingUser.id, {
         type: role,
         name: fullName,
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
-        email: cleanEmail,
         phone: formData.phone,
         address: fullAddress,
         streetAddress: formData.streetAddress,
@@ -178,29 +156,17 @@ const ProfileCompletion: React.FC<ProfileCompletionProps> = ({ googleUser, onCom
         city: formData.city,
         province: formData.province,
         country: formData.country,
-        bio: role === 'cleaner' ? formData.bio : undefined,
-        hourlyRate: role === 'cleaner' ? formData.hourlyRate : undefined,
-        experience: role === 'cleaner' ? formData.experience : undefined,
-        services: role === 'cleaner' ? services : undefined,
-        rating: role === 'cleaner' ? 5.0 : undefined,
-        reviewCount: role === 'cleaner' ? 0 : undefined,
-        totalEarnings: role === 'cleaner' ? 0 : undefined,
-        isAvailable: role === 'cleaner' ? true : undefined,
-        emailVerified: true, // Google email is pre-verified
-        phoneVerified: false,
-        addressVerified: false,
-        authProvider: 'google',
-        firebaseUid: googleUser.uid,
-        photoURL: googleUser.photoURL || undefined,
         profileComplete: true,
-        createdAt: new Date().toISOString()
-      };
-
-      await storage.set(`user:${newUser.id}`, newUser);
-
-      const session = createSession(newUser.id);
-      await storage.set('session', session);
-      await storage.set('currentUser', newUser);
+        ...(role === 'cleaner'
+          ? {
+              bio: formData.bio,
+              hourlyRate: formData.hourlyRate,
+              experience: formData.experience,
+              services,
+              isAvailable: true,
+            }
+          : {}),
+      } as Partial<User>);
 
       requestPushPermission();
 
@@ -211,7 +177,7 @@ const ProfileCompletion: React.FC<ProfileCompletionProps> = ({ googleUser, onCom
         userType: role,
       });
 
-      onComplete(newUser);
+      onComplete(updated);
     } catch (err) {
       setError('An error occurred. Please try again.');
       setIsLoading(false);

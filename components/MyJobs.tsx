@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { CleaningRequest } from '../types';
-import { storage } from '../utils/storage';
+import { api } from '../utils/api';
 import { Card, Button, Badge } from './UI';
 import ComingSoon, { useComingSoon } from './ComingSoon';
 import { CONFIG } from '../utils/config';
@@ -46,21 +46,22 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
 
   const loadJobs = async () => {
     setIsLoading(true);
-    const keys = await storage.list('request:');
-    const items: CleaningRequest[] = [];
-    for (const key of keys) {
-      const req = await storage.get(key);
-      if (req && req.acceptedBy === cleanerId) {
+    try {
+      const all = await api.requests.listJobs();
+      const items = all.filter(req => {
         const isActive = ['accepted', 'in_progress'].includes(req.status);
-        if (type === 'active' && isActive) items.push(req);
-        if (type === 'history' && req.status === 'completed') items.push(req);
-      }
+        if (type === 'active') return isActive;
+        return req.status === 'completed';
+      });
+      setJobs(items.sort((a, b) => {
+        if (type === 'active') return new Date(a.date).getTime() - new Date(b.date).getTime();
+        return new Date(b.completedAt || b.date).getTime() - new Date(a.completedAt || a.date).getTime();
+      }));
+    } catch (err) {
+      console.error('load jobs error:', err);
+    } finally {
+      setIsLoading(false);
     }
-    setJobs(items.sort((a, b) => {
-      if (type === 'active') return new Date(a.date).getTime() - new Date(b.date).getTime();
-      return new Date(b.completedAt || b.date).getTime() - new Date(a.completedAt || a.date).getTime();
-    }));
-    setIsLoading(false);
   };
 
   useEffect(() => {
@@ -70,12 +71,19 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
   }, [type]);
 
   const updateStatus = async (id: string, status: CleaningRequest['status']) => {
-    const req = await storage.get(`request:${id}`);
+    let req: CleaningRequest;
+    try {
+      // The server enforces the transition and finalizes all money on completion
+      // (marks paid, queues payout, credits cleaner earnings).
+      req = await api.requests.setStatus(id, status);
+    } catch (err) {
+      console.error('update status error:', err);
+      alert('Could not update the job. Please try again.');
+      loadJobs();
+      return;
+    }
 
     if (status === 'in_progress') {
-      // Payment already collected at request creation — go directly to in_progress
-      req.status = 'in_progress';
-
       // Notify homeowner that cleaning has started (in-app)
       await NotificationHelpers.paymentHeld(req.homeownerId, req.serviceType);
 
@@ -88,30 +96,15 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
       setToast({ message: `Cleaning started! ${req.homeownerName} has been notified.` });
       setTimeout(() => setToast(null), 5000);
     } else if (status === 'completed') {
-      // Cleaner marks job as done → payment already completed
-      req.status = 'completed';
-      req.completedAt = new Date().toISOString();
-      req.paymentStatus = 'paid';
-      req.paidAt = req.paidAt || new Date().toISOString();
+      const payout = Number(req.cleanerPayout) || 0;
 
       // Stop any remaining reminders
       await stopRemindersForRequest(id, 'paid');
 
-      // Credit cleaner earnings (payment was already collected)
-      const user = await storage.get(`user:${cleanerId}`);
-      if (user) {
-        user.totalEarnings = (Number(user.totalEarnings) || 0) + (Number(req.cleanerPayout) || 0);
-        await storage.set(`user:${cleanerId}`, user);
-      }
-
-      // Mark payout as pending — admin will disburse manually from the admin panel
-      req.payoutStatus = 'pending';
-      req.payoutAmount = Number(req.cleanerPayout) || 0;
-
       // Notify admin about job completion (payout awaiting disbursement)
       notifyAdmin('job_completed', {
         serviceType: req.serviceType,
-        amount: req.cleanerPayout,
+        amount: payout,
         cleanerName: req.cleanerName || undefined,
         homeownerName: req.homeownerName,
         requestId: req.id,
@@ -121,22 +114,15 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
       });
 
       // Notify both parties — payment released (in-app)
-      await NotificationHelpers.paymentReleased(req.homeownerId, req.cleanerName || 'Your cleaner', req.serviceType, req.cleanerPayout);
-      await NotificationHelpers.paymentReceived(cleanerId, req.cleanerPayout, req.serviceType);
+      await NotificationHelpers.paymentReleased(req.homeownerId, req.cleanerName || 'Your cleaner', req.serviceType, payout);
+      await NotificationHelpers.paymentReceived(cleanerId, payout, req.serviceType);
 
       // Send email + push to homeowner about job completion
       if (req.homeownerEmail) {
-        ExternalNotify.jobCompleted(req.homeownerEmail, req.homeownerName || 'Homeowner', req.cleanerName || 'Your cleaner', req.serviceType, req.cleanerPayout);
+        ExternalNotify.jobCompleted(req.homeownerEmail, req.homeownerName || 'Homeowner', req.cleanerName || 'Your cleaner', req.serviceType, payout);
       }
-      // Send email + push to cleaner about payment
-      if (user) {
-        ExternalNotify.paymentReceived(user.email, user.name || 'Cleaner', req.cleanerPayout, req.serviceType);
-      }
-    } else {
-      req.status = status;
     }
 
-    await storage.set(`request:${id}`, req);
     loadJobs();
   };
 
@@ -146,7 +132,7 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
 
     try {
       // If admin already approved location override, skip proximity check
-      const jobData = await storage.get(`request:${jobId}`);
+      const jobData = jobs.find(j => j.id === jobId);
       if (jobData?.locationApprovalStatus === 'approved') {
         await updateStatus(jobId, 'in_progress');
         setStartingJobId(null);
@@ -159,19 +145,18 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
 
       if (result.distance !== null && result.distance > maxDist) {
         // Cleaner is too far — request admin approval instead of hard-blocking
-        const req = await storage.get(`request:${jobId}`);
-        if (req) {
-          req.locationApprovalStatus = 'pending';
-          req.locationApprovalRequestedAt = new Date().toISOString();
-          req.cleanerDistanceAtStart = result.distance;
-          await storage.set(`request:${jobId}`, req);
+        let req: CleaningRequest | null = null;
+        try {
+          req = await api.requests.requestLocationApproval(jobId, result.distance);
+        } catch (e) {
+          console.error('location approval request error:', e);
         }
 
         // Notify admin
         notifyAdmin('location_approval_request', {
-          cleanerName: req?.cleanerName || 'Unknown cleaner',
-          serviceType: req?.serviceType || 'Cleaning',
-          homeownerName: req?.homeownerName || 'Unknown homeowner',
+          cleanerName: req?.cleanerName || jobData?.cleanerName || 'Unknown cleaner',
+          serviceType: req?.serviceType || jobData?.serviceType || 'Cleaning',
+          homeownerName: req?.homeownerName || jobData?.homeownerName || 'Unknown homeowner',
           jobAddress,
           distance: result.distance,
           requestId: jobId,
@@ -207,7 +192,7 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
   };
 
   const handleCancel = async (id: string) => {
-    const req = await storage.get(`request:${id}`);
+    const req = jobs.find(j => j.id === id);
     if (!req) return;
 
     // Block cancellation if payment has already been collected
@@ -217,15 +202,15 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
     }
 
     if (window.confirm("Release this job back to the marketplace? The homeowner will need to find another cleaner.")) {
-      req.status = 'open';
-      req.acceptedBy = null;
-      req.cleanerName = null;
-      req.cleanerPhone = null;
-      req.hourlyRate = null;
-      req.acceptedAt = null;
-      await storage.set(`request:${id}`, req);
-      await stopRemindersForRequest(id, 'cancelled');
-      loadJobs();
+      try {
+        await api.requests.release(id);
+        await stopRemindersForRequest(id, 'cancelled');
+        loadJobs();
+      } catch (err) {
+        console.error('release job error:', err);
+        alert('Could not release this job. Please try again.');
+        loadJobs();
+      }
     }
   };
 
