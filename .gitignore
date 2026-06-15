@@ -31,6 +31,12 @@ server/.env
 server/.env.*
 !server/.env.example
 
+# Firebase service-account private keys (NEVER commit)
+*-firebase-adminsdk-*.json
+
+# Media downloads (avoid accidentally committing)
+WhatsApp Image *.jpeg
+
 # Windows artifacts
 nul
 

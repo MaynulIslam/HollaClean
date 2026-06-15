@@ -22,11 +22,5 @@ services:
         value: 20
       - key: ADMIN_SECRET
         sync: false
-      # ---- Database-backed API (the rebuild). Set these in the Render
-      # dashboard, then run `prisma migrate deploy` against the database. ----
-      - key: DATABASE_URL
-        sync: false
-      - key: JWT_SECRET
-        sync: false
       - key: FIREBASE_SERVICE_ACCOUNT
         sync: false

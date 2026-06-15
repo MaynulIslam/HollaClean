@@ -1,46 +1,35 @@
-/**
- * Admin console routes — the database-backed replacement for the AdminDashboard's
- * old localStorage reads/writes. Every route requires a valid admin token
- * (x-admin-token header), minted from ADMIN_SECRET via /api/auth/admin-token.
- *
- * The admin console used to read each browser's localStorage, so it only ever
- * saw data created on that one device. These routes expose the shared database
- * so an admin sees every user, request and service across the platform.
- */
 const express = require('express');
-const bcrypt = require('bcryptjs');
-const { prisma } = require('../lib/db');
+const { db, docToObj, snapshotToArray, attachParties } = require('../lib/db');
 const { requireAdminToken } = require('../lib/adminAuth');
 const { sanitizeUser } = require('../lib/auth');
-const { serializeRequest, WITH_PARTIES } = require('../lib/serialize');
+const { serializeRequest } = require('../lib/serialize');
 const { round2, DEFAULTS } = require('../lib/pricing');
+const { v4: uuid } = require('uuid');
 
 const router = express.Router();
-const BCRYPT_ROUNDS = 12;
 
-// Every admin route is gated by the admin token.
 router.use(requireAdminToken);
 
-// ─── Overview / lists ───────────────────────────────────────────────────────
+// ─── Overview / lists ───
 
-// GET /api/admin/requests — every cleaning request
+// GET /api/admin/requests
 router.get('/requests', async (req, res) => {
   try {
-    const rows = await prisma.cleaningRequest.findMany({
-      orderBy: { createdAt: 'desc' },
-      include: WITH_PARTIES,
-    });
-    res.json({ requests: rows.map(serializeRequest) });
+    const snapshot = await db.collection('requests').orderBy('createdAt', 'desc').get();
+    const rows = snapshotToArray(snapshot);
+    const enriched = await Promise.all(rows.map(attachParties));
+    res.json({ requests: enriched.map(serializeRequest) });
   } catch (err) {
     console.error('admin list requests error:', err);
     res.status(500).json({ error: 'Failed to load requests' });
   }
 });
 
-// GET /api/admin/users — every user (homeowners + cleaners + admins)
+// GET /api/admin/users
 router.get('/users', async (req, res) => {
   try {
-    const rows = await prisma.user.findMany({ orderBy: { createdAt: 'desc' } });
+    const snapshot = await db.collection('users').orderBy('createdAt', 'desc').get();
+    const rows = snapshotToArray(snapshot);
     res.json({ users: rows.map(sanitizeUser) });
   } catch (err) {
     console.error('admin list users error:', err);
@@ -48,12 +37,13 @@ router.get('/users', async (req, res) => {
   }
 });
 
-// ─── Service catalog ────────────────────────────────────────────────────────
+// ─── Service catalog ───
 
 // GET /api/admin/services
 router.get('/services', async (req, res) => {
   try {
-    const rows = await prisma.serviceOffer.findMany({ orderBy: { name: 'asc' } });
+    const snapshot = await db.collection('services').orderBy('name', 'asc').get();
+    const rows = snapshotToArray(snapshot);
     res.json({ services: rows });
   } catch (err) {
     console.error('admin list services error:', err);
@@ -61,24 +51,24 @@ router.get('/services', async (req, res) => {
   }
 });
 
-// POST /api/admin/services { name, basePrice }
+// POST /api/admin/services
 router.post('/services', async (req, res) => {
   try {
     const { name, basePrice } = req.body || {};
     if (!name || Number(basePrice) <= 0) {
       return res.status(400).json({ error: 'A name and a positive basePrice are required' });
     }
-    const created = await prisma.serviceOffer.create({
-      data: { name: String(name), basePrice: round2(basePrice) },
-    });
-    res.status(201).json({ service: created });
+    const id = uuid();
+    const data = { name: String(name), basePrice: round2(basePrice) };
+    await db.collection('services').doc(id).set(data);
+    res.status(201).json({ service: { id, ...data } });
   } catch (err) {
     console.error('admin create service error:', err);
     res.status(500).json({ error: 'Failed to create service' });
   }
 });
 
-// PATCH /api/admin/services/:id { name?, basePrice? }
+// PATCH /api/admin/services/:id
 router.patch('/services/:id', async (req, res) => {
   try {
     const { name, basePrice } = req.body || {};
@@ -88,10 +78,13 @@ router.patch('/services/:id', async (req, res) => {
     if (Object.keys(data).length === 0) {
       return res.status(400).json({ error: 'Nothing to update' });
     }
-    const updated = await prisma.serviceOffer.update({ where: { id: req.params.id }, data });
+    const ref = db.collection('services').doc(req.params.id);
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: 'Service not found' });
+    await ref.update(data);
+    const updated = docToObj(await ref.get());
     res.json({ service: updated });
   } catch (err) {
-    if (err.code === 'P2025') return res.status(404).json({ error: 'Service not found' });
     console.error('admin update service error:', err);
     res.status(500).json({ error: 'Failed to update service' });
   }
@@ -100,19 +93,19 @@ router.patch('/services/:id', async (req, res) => {
 // DELETE /api/admin/services/:id
 router.delete('/services/:id', async (req, res) => {
   try {
-    await prisma.serviceOffer.delete({ where: { id: req.params.id } });
+    const ref = db.collection('services').doc(req.params.id);
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: 'Service not found' });
+    await ref.delete();
     res.json({ ok: true });
   } catch (err) {
-    if (err.code === 'P2025') return res.status(404).json({ error: 'Service not found' });
     console.error('admin delete service error:', err);
     res.status(500).json({ error: 'Failed to delete service' });
   }
 });
 
-// ─── Users ──────────────────────────────────────────────────────────────────
+// ─── Users ───
 
-// Columns an admin may write. Anything else in the body is ignored. (Note:
-// firstName/lastName are NOT DB columns — the client combines them into `name`.)
 const ADMIN_USER_FIELDS = [
   'name', 'email', 'phone',
   'address', 'streetAddress', 'apartment', 'city', 'province', 'country',
@@ -123,7 +116,7 @@ const ADMIN_USER_FIELDS = [
 const USER_NUMERIC = new Set(['hourlyRate', 'experience', 'rating', 'reviewCount']);
 const USER_BOOL = new Set(['isAvailable', 'emailVerified', 'phoneVerified', 'addressVerified']);
 
-// PATCH /api/admin/users/:id — admin may edit broader fields than a self-edit.
+// PATCH /api/admin/users/:id
 router.patch('/users/:id', async (req, res) => {
   try {
     const body = req.body || {};
@@ -142,54 +135,88 @@ router.patch('/users/:id', async (req, res) => {
     }
     if (body.email !== undefined) data.email = String(body.email).toLowerCase();
 
-    // Optional admin password reset.
+    // Admin password reset via Firebase Admin SDK
     if (body.password) {
       if (String(body.password).length < 8) {
         return res.status(400).json({ error: 'Password must be at least 8 characters' });
       }
-      data.passwordHash = await bcrypt.hash(String(body.password), BCRYPT_ROUNDS);
+      const admin = require('firebase-admin');
+      await admin.auth().updateUser(req.params.id, { password: String(body.password) });
     }
 
-    if (Object.keys(data).length === 0) {
+    if (Object.keys(data).length === 0 && !body.password) {
       return res.status(400).json({ error: 'No editable fields supplied' });
     }
 
-    const updated = await prisma.user.update({ where: { id: req.params.id }, data });
+    const ref = db.collection('users').doc(req.params.id);
+    const existing = await ref.get();
+    if (!existing.exists) return res.status(404).json({ error: 'User not found' });
+
+    if (Object.keys(data).length > 0) {
+      await ref.update(data);
+    }
+
+    const updated = docToObj(await ref.get());
     res.json({ user: sanitizeUser(updated) });
   } catch (err) {
-    if (err.code === 'P2025') return res.status(404).json({ error: 'User not found' });
-    if (err.code === 'P2002') return res.status(409).json({ error: 'That email is already in use' });
+    if (err.code === 'auth/user-not-found') {
+      return res.status(404).json({ error: 'User not found in Firebase Auth' });
+    }
     console.error('admin update user error:', err);
     res.status(500).json({ error: 'Failed to update user' });
   }
 });
 
-// DELETE /api/admin/users/:id — hard delete. Blocked if the user still has
-// requests/jobs/reviews (FK), with a clear message instead of a 500.
+// DELETE /api/admin/users/:id
 router.delete('/users/:id', async (req, res) => {
   try {
-    await prisma.user.delete({ where: { id: req.params.id } });
-    res.json({ ok: true });
-  } catch (err) {
-    if (err.code === 'P2025') return res.status(404).json({ error: 'User not found' });
-    if (err.code === 'P2003') {
+    const ref = db.collection('users').doc(req.params.id);
+    const existing = await ref.get();
+    if (!existing.exists) return res.status(404).json({ error: 'User not found' });
+
+    // Check for associated requests
+    const requestsSnap = await db.collection('requests')
+      .where('homeownerId', '==', req.params.id)
+      .limit(1)
+      .get();
+    if (!requestsSnap.empty) {
       return res.status(409).json({
         error: 'This user has associated requests, jobs or reviews and cannot be deleted.',
       });
     }
+    const jobsSnap = await db.collection('requests')
+      .where('cleanerId', '==', req.params.id)
+      .limit(1)
+      .get();
+    if (!jobsSnap.empty) {
+      return res.status(409).json({
+        error: 'This user has associated requests, jobs or reviews and cannot be deleted.',
+      });
+    }
+    const reviewsSnap = await db.collection('reviews')
+      .where('cleanerId', '==', req.params.id)
+      .limit(1)
+      .get();
+    if (!reviewsSnap.empty) {
+      return res.status(409).json({
+        error: 'This user has associated requests, jobs or reviews and cannot be deleted.',
+      });
+    }
+
+    await ref.delete();
+    res.json({ ok: true });
+  } catch (err) {
     console.error('admin delete user error:', err);
     res.status(500).json({ error: 'Failed to delete user' });
   }
 });
 
-// ─── Requests ─────────────────────────────────────────────────────────────--
+// ─── Requests ───
 
 const REQUEST_TEXT_FIELDS = ['serviceType', 'date', 'time', 'address', 'instructions', 'status', 'paymentStatus'];
 const REQUEST_MONEY_FIELDS = ['hourlyRate', 'totalAmount', 'taxAmount', 'platformCommission', 'cleanerPayout'];
 
-// PATCH /api/admin/requests/:id — admin override of a request. Money fields are
-// stored as sent (a deliberate privileged override); if the admin sends only a
-// new totalAmount we derive commission/payout from it for convenience.
+// PATCH /api/admin/requests/:id
 router.patch('/requests/:id', async (req, res) => {
   try {
     const body = req.body || {};
@@ -205,7 +232,6 @@ router.patch('/requests/:id', async (req, res) => {
         data[key] = round2(body[key]);
       }
     }
-    // Convenience: total provided but commission/payout not → derive them.
     if (
       data.totalAmount != null &&
       body.platformCommission === undefined &&
@@ -219,44 +245,47 @@ router.patch('/requests/:id', async (req, res) => {
       return res.status(400).json({ error: 'No editable fields supplied' });
     }
 
-    const updated = await prisma.cleaningRequest.update({
-      where: { id: req.params.id },
-      data,
-      include: WITH_PARTIES,
-    });
-    res.json({ request: serializeRequest(updated) });
+    const ref = db.collection('requests').doc(req.params.id);
+    const existing = await ref.get();
+    if (!existing.exists) return res.status(404).json({ error: 'Request not found' });
+
+    await ref.update(data);
+    const updated = docToObj(await ref.get());
+    const enriched = await attachParties(updated);
+    res.json({ request: serializeRequest(enriched) });
   } catch (err) {
-    if (err.code === 'P2025') return res.status(404).json({ error: 'Request not found' });
     console.error('admin update request error:', err);
     res.status(500).json({ error: 'Failed to update request' });
   }
 });
 
-// POST /api/admin/requests/:id/location-approval { decision: 'approved' | 'denied' }
+// POST /api/admin/requests/:id/location-approval
 router.post('/requests/:id/location-approval', async (req, res) => {
   try {
     const decision = req.body && req.body.decision;
     if (!['approved', 'denied'].includes(decision)) {
       return res.status(400).json({ error: "decision must be 'approved' or 'denied'" });
     }
-    const updated = await prisma.cleaningRequest.update({
-      where: { id: req.params.id },
-      data: { locationApprovalStatus: decision },
-      include: WITH_PARTIES,
-    });
-    res.json({ request: serializeRequest(updated) });
+    const ref = db.collection('requests').doc(req.params.id);
+    const existing = await ref.get();
+    if (!existing.exists) return res.status(404).json({ error: 'Request not found' });
+
+    await ref.update({ locationApprovalStatus: decision });
+    const updated = docToObj(await ref.get());
+    const enriched = await attachParties(updated);
+    res.json({ request: serializeRequest(enriched) });
   } catch (err) {
-    if (err.code === 'P2025') return res.status(404).json({ error: 'Request not found' });
     console.error('admin location approval error:', err);
     res.status(500).json({ error: 'Failed to update location approval' });
   }
 });
 
-// POST /api/admin/requests/:id/payout { action: 'disburse' | 'adjust', amount? }
+// POST /api/admin/requests/:id/payout
 router.post('/requests/:id/payout', async (req, res) => {
   try {
     const { action, amount } = req.body || {};
-    const r = await prisma.cleaningRequest.findUnique({ where: { id: req.params.id } });
+    const ref = db.collection('requests').doc(req.params.id);
+    const r = docToObj(await ref.get());
     if (!r) return res.status(404).json({ error: 'Request not found' });
 
     let data;
@@ -275,12 +304,10 @@ router.post('/requests/:id/payout', async (req, res) => {
       return res.status(400).json({ error: "action must be 'disburse' or 'adjust'" });
     }
 
-    const updated = await prisma.cleaningRequest.update({
-      where: { id: r.id },
-      data,
-      include: WITH_PARTIES,
-    });
-    res.json({ request: serializeRequest(updated) });
+    await ref.update(data);
+    const updated = docToObj(await ref.get());
+    const enriched = await attachParties(updated);
+    res.json({ request: serializeRequest(enriched) });
   } catch (err) {
     console.error('admin payout error:', err);
     res.status(500).json({ error: 'Failed to process payout' });

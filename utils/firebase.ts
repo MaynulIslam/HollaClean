@@ -1,21 +1,13 @@
-
-/**
- * Firebase Authentication Utility
- *
- * Uses Firebase compat SDK loaded via CDN in index.html.
- * Provides Google sign-in functionality.
- */
-
-// Global firebase object loaded via CDN script tags
 declare const firebase: any;
 
 const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY,
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.FIREBASE_PROJECT_ID,
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.FIREBASE_APP_ID,
+  apiKey: "AIzaSyCWkAm2LBU7gSzwJKm48Or3bgYF77yKS-g",
+  authDomain: "hollaclean-ff042.firebaseapp.com",
+  projectId: "hollaclean-ff042",
+  storageBucket: "hollaclean-ff042.firebasestorage.app",
+  messagingSenderId: "328896367702",
+  appId: "1:328896367702:web:2746357303d1b33e1f7ff7",
+  measurementId: "G-NVKST589LK",
 };
 
 let firebaseInitialized = false;
@@ -43,7 +35,6 @@ export interface GoogleUserInfo {
   email: string;
   displayName: string | null;
   photoURL: string | null;
-  /** Firebase ID token — sent to the server, which verifies it before trusting it. */
   idToken: string;
 }
 
@@ -70,11 +61,43 @@ export async function signInWithGoogle(): Promise<GoogleUserInfo> {
   };
 }
 
+export async function signInWithEmail(email: string, password: string): Promise<{ user: any; idToken: string }> {
+  if (!isFirebaseAvailable()) {
+    throw new Error('Email sign-in is temporarily unavailable.');
+  }
+  initFirebase();
+  const result = await firebase.auth().signInWithEmailAndPassword(email, password);
+  const idToken = await result.user.getIdToken();
+  return { user: result.user, idToken };
+}
+
+export async function createUserWithEmail(email: string, password: string): Promise<{ user: any; idToken: string }> {
+  if (!isFirebaseAvailable()) {
+    throw new Error('Registration is temporarily unavailable.');
+  }
+  initFirebase();
+  const result = await firebase.auth().createUserWithEmailAndPassword(email, password);
+  const idToken = await result.user.getIdToken();
+  return { user: result.user, idToken };
+}
+
 export async function signOutFirebase(): Promise<void> {
   if (!isFirebaseAvailable() || !firebaseInitialized) return;
   try {
     await firebase.auth().signOut();
   } catch {
     // Silently handle if not signed in
+  }
+}
+
+/** Get a fresh ID token for the currently signed-in Firebase user. */
+export async function getCurrentIdToken(): Promise<string | null> {
+  if (!isFirebaseAvailable()) return null;
+  const currentUser = firebase.auth().currentUser;
+  if (!currentUser) return null;
+  try {
+    return await currentUser.getIdToken();
+  } catch {
+    return null;
   }
 }

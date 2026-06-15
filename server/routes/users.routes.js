@@ -1,50 +1,25 @@
-/**
- * User routes — public cleaner directory + profile read/update.
- *
- * Profiles used to live in localStorage, so a cleaner's profile was only ever
- * visible on their own device. Now any homeowner can browse cleaners and view a
- * profile from the shared database.
- */
 const express = require('express');
-const { prisma } = require('../lib/db');
+const { db, snapshotToArray, docToObj } = require('../lib/db');
 const { requireAuth, sanitizeUser } = require('../lib/auth');
 
 const router = express.Router();
 
-// Fields a user is allowed to change about themselves. Anything not in this
-// list (type, email, passwordHash, rating, totalEarnings, stripe*, etc.) is
-// ignored so the client can't escalate privileges or fake its own ratings.
-// NOTE: firstName/lastName are NOT database columns — the client splits the
-// name for its form fields but always sends the combined `name`, which is what
-// we persist. Listing them here would make Prisma throw on an unknown column.
 const SELF_EDITABLE = [
-  'name',
-  'phone',
-  'address',
-  'streetAddress',
-  'apartment',
-  'city',
-  'province',
-  'country',
-  'photoURL',
-  'profileComplete',
-  // Cleaner-facing
-  'bio',
-  'hourlyRate',
-  'experience',
-  'services',
-  'isAvailable',
+  'name', 'phone', 'address', 'streetAddress', 'apartment', 'city', 'province', 'country',
+  'photoURL', 'profileComplete',
+  'bio', 'hourlyRate', 'experience', 'services', 'isAvailable',
 ];
 
 const NUMERIC = new Set(['hourlyRate', 'experience']);
 
-// GET /api/users/cleaners  — public-ish directory of available cleaners
+// GET /api/users/cleaners
 router.get('/cleaners', requireAuth, async (req, res) => {
   try {
-    const rows = await prisma.user.findMany({
-      where: { type: 'cleaner' },
-      orderBy: [{ rating: 'desc' }, { reviewCount: 'desc' }],
-    });
+    const snapshot = await db.collection('users')
+      .where('type', '==', 'cleaner')
+      .orderBy('rating', 'desc')
+      .get();
+    const rows = snapshotToArray(snapshot);
     res.json({ cleaners: rows.map(sanitizeUser) });
   } catch (err) {
     console.error('list cleaners error:', err);
@@ -55,7 +30,7 @@ router.get('/cleaners', requireAuth, async (req, res) => {
 // GET /api/users/:id
 router.get('/:id', requireAuth, async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+    const user = docToObj(await db.collection('users').doc(req.params.id).get());
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json({ user: sanitizeUser(user) });
   } catch (err) {
@@ -64,7 +39,7 @@ router.get('/:id', requireAuth, async (req, res) => {
   }
 });
 
-// PATCH /api/users/:id  — a user may only edit their own profile
+// PATCH /api/users/:id
 router.patch('/:id', requireAuth, async (req, res) => {
   try {
     if (req.user.id !== req.params.id && req.user.type !== 'admin') {
@@ -84,14 +59,9 @@ router.patch('/:id', requireAuth, async (req, res) => {
       }
     }
 
-    // Allow choosing homeowner/cleaner exactly once — only while the profile is
-    // still being completed (e.g. right after Google sign-up). After that the
-    // account type is fixed and cannot be changed via this endpoint.
+    // Allow choosing homeowner/cleaner exactly once — only while profile is incomplete
     if (body.type !== undefined && ['homeowner', 'cleaner'].includes(body.type)) {
-      const current = await prisma.user.findUnique({
-        where: { id: req.params.id },
-        select: { profileComplete: true },
-      });
+      const current = docToObj(await db.collection('users').doc(req.params.id).get());
       if (current && current.profileComplete === false) {
         data.type = body.type;
       }
@@ -101,7 +71,8 @@ router.patch('/:id', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'No editable fields supplied' });
     }
 
-    const updated = await prisma.user.update({ where: { id: req.params.id }, data });
+    await db.collection('users').doc(req.params.id).update(data);
+    const updated = docToObj(await db.collection('users').doc(req.params.id).get());
     res.json({ user: sanitizeUser(updated) });
   } catch (err) {
     console.error('update user error:', err);

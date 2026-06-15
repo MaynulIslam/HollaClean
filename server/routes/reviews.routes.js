@@ -1,14 +1,7 @@
-/**
- * Review routes.
- *
- * A review can only be left by the homeowner who owned a completed request, for
- * the cleaner who did it, once per request. Creating a review recomputes the
- * cleaner's aggregate rating/reviewCount inside a transaction so the directory
- * numbers can never drift from the underlying reviews.
- */
 const express = require('express');
-const { prisma } = require('../lib/db');
+const { db, docToObj, snapshotToArray, toISO } = require('../lib/db');
 const { requireAuth } = require('../lib/auth');
+const { v4: uuid } = require('uuid');
 
 const router = express.Router();
 
@@ -20,7 +13,7 @@ function serialize(rv) {
     homeownerId: rv.homeownerId,
     rating: rv.rating,
     comment: rv.comment || '',
-    createdAt: rv.createdAt ? rv.createdAt.toISOString() : new Date().toISOString(),
+    createdAt: toISO(rv.createdAt) || new Date().toISOString(),
   };
 }
 
@@ -28,11 +21,9 @@ function serialize(rv) {
 router.get('/', requireAuth, async (req, res) => {
   try {
     const { cleanerId } = req.query;
-    const where = cleanerId ? { cleanerId: String(cleanerId) } : {};
-    const rows = await prisma.review.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-    });
+    let query = db.collection('reviews').orderBy('createdAt', 'desc');
+    if (cleanerId) query = query.where('cleanerId', '==', String(cleanerId));
+    const rows = snapshotToArray(await query.get());
     res.json({ reviews: rows.map(serialize) });
   } catch (err) {
     console.error('list reviews error:', err);
@@ -50,8 +41,10 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'rating must be between 1 and 5' });
     }
 
-    const request = await prisma.cleaningRequest.findUnique({ where: { id: requestId } });
-    if (!request) return res.status(404).json({ error: 'Request not found' });
+    const requestDoc = await db.collection('requests').doc(requestId).get();
+    if (!requestDoc.exists) return res.status(404).json({ error: 'Request not found' });
+    const request = requestDoc.data();
+
     if (request.homeownerId !== req.user.id) {
       return res.status(403).json({ error: 'Only the homeowner can review this job' });
     }
@@ -62,40 +55,46 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(409).json({ error: 'You can only review a completed job' });
     }
 
-    const already = await prisma.review.findFirst({ where: { requestId } });
-    if (already) return res.status(409).json({ error: 'This job has already been reviewed' });
+    // Check if already reviewed
+    const existingSnapshot = await db.collection('reviews')
+      .where('requestId', '==', requestId)
+      .limit(1)
+      .get();
+    if (!existingSnapshot.empty) {
+      return res.status(409).json({ error: 'This job has already been reviewed' });
+    }
 
     const cleanerId = request.cleanerId;
+    const reviewId = uuid();
 
-    const review = await prisma.$transaction(async (tx) => {
-      const created = await tx.review.create({
-        data: {
-          requestId,
-          cleanerId,
-          homeownerId: req.user.id,
-          rating: numRating,
-          comment: comment || null,
-        },
-      });
+    // Run in a transaction: create review + update cleaner aggregate
+    await db.runTransaction(async (transaction) => {
+      const reviewData = {
+        requestId,
+        cleanerId,
+        homeownerId: req.user.id,
+        rating: numRating,
+        comment: comment || null,
+        createdAt: new Date(),
+      };
+      transaction.set(db.collection('reviews').doc(reviewId), reviewData);
 
-      // Recompute the cleaner's aggregate from the source reviews.
-      const agg = await tx.review.aggregate({
-        where: { cleanerId },
-        _avg: { rating: true },
-        _count: { rating: true },
+      // Recompute cleaner's aggregate rating
+      const allReviewsSnapshot = await db.collection('reviews')
+        .where('cleanerId', '==', cleanerId)
+        .get();
+      const allRatings = allReviewsSnapshot.docs.map(d => d.data().rating);
+      const avg = allRatings.length > 0
+        ? Math.round((allRatings.reduce((a, b) => a + b, 0) / allRatings.length) * 10) / 10
+        : 0;
+      transaction.update(db.collection('users').doc(cleanerId), {
+        rating: avg,
+        reviewCount: allRatings.length,
       });
-      await tx.user.update({
-        where: { id: cleanerId },
-        data: {
-          rating: Math.round((agg._avg.rating || 0) * 10) / 10,
-          reviewCount: agg._count.rating,
-        },
-      });
-
-      return created;
     });
 
-    res.status(201).json({ review: serialize(review) });
+    const reviewDoc = await db.collection('reviews').doc(reviewId).get();
+    res.status(201).json({ review: serialize({ id: reviewDoc.id, ...reviewDoc.data() }) });
   } catch (err) {
     console.error('create review error:', err);
     res.status(500).json({ error: 'Failed to create review' });

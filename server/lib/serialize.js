@@ -1,8 +1,5 @@
-/**
- * Shared serializer: maps a Prisma CleaningRequest (with homeowner/cleaner
- * relations) to the denormalized shape the frontend expects. Used by both the
- * marketplace request routes and the admin console so the two never drift.
- */
+const { toISO } = require('./db');
+
 function serializeRequest(r) {
   if (!r) return r;
   const homeowner = r.homeowner || {};
@@ -32,8 +29,8 @@ function serializeRequest(r) {
     cleanerEmail: cleaner ? cleaner.email || null : null,
 
     hourlyRate: r.hourlyRate,
-    acceptedAt: r.acceptedAt ? r.acceptedAt.toISOString() : null,
-    completedAt: r.completedAt ? r.completedAt.toISOString() : null,
+    acceptedAt: toISO(r.acceptedAt),
+    completedAt: toISO(r.completedAt),
 
     totalAmount: r.totalAmount,
     taxAmount: r.taxAmount,
@@ -42,10 +39,10 @@ function serializeRequest(r) {
     cleanerPayout: r.cleanerPayout,
     paymentStatus: r.paymentStatus,
     paymentIntentId: r.paymentIntentId || undefined,
-    paidAt: r.paidAt ? r.paidAt.toISOString() : undefined,
+    paidAt: toISO(r.paidAt) || undefined,
 
     payoutStatus: r.payoutStatus || undefined,
-    payoutDisbursedAt: r.payoutDisbursedAt ? r.payoutDisbursedAt.toISOString() : undefined,
+    payoutDisbursedAt: toISO(r.payoutDisbursedAt) || undefined,
     payoutAmount: r.payoutAmount != null ? r.payoutAmount : undefined,
 
     squareFootage: r.squareFootage || undefined,
@@ -58,18 +55,11 @@ function serializeRequest(r) {
     hasPets: r.hasPets != null ? r.hasPets : undefined,
 
     locationApprovalStatus: r.locationApprovalStatus || undefined,
-    locationApprovalRequestedAt: r.locationApprovalRequestedAt
-      ? r.locationApprovalRequestedAt.toISOString()
-      : undefined,
+    locationApprovalRequestedAt: toISO(r.locationApprovalRequestedAt) || undefined,
     cleanerDistanceAtStart: r.cleanerDistanceAtStart != null ? r.cleanerDistanceAtStart : undefined,
 
-    createdAt: r.createdAt ? r.createdAt.toISOString() : new Date().toISOString(),
+    createdAt: toISO(r.createdAt) || new Date().toISOString(),
   };
 }
 
-const WITH_PARTIES = {
-  homeowner: { select: { id: true, name: true, phone: true, email: true } },
-  cleaner: { select: { id: true, name: true, phone: true, email: true } },
-};
-
-module.exports = { serializeRequest, WITH_PARTIES };
+module.exports = { serializeRequest };
