@@ -1,12 +1,13 @@
 declare const firebase: any;
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBLRT4vmTJUrlAtt40nB0DAO1RzN7hCzwM",
-  authDomain: "hola-clean-ea9b5.firebaseapp.com",
-  projectId: "hola-clean-ea9b5",
-  storageBucket: "hola-clean-ea9b5.firebasestorage.app",
-  messagingSenderId: "919716357883",
-  appId: "1:919716357883:web:94bcf84c646d9b496c725e",
+  apiKey: "AIzaSyCWkAm2LBU7gSzwJKm48Or3bgYF77yKS-g",
+  authDomain: "hollaclean-ff042.firebaseapp.com",
+  projectId: "hollaclean-ff042",
+  storageBucket: "hollaclean-ff042.firebasestorage.app",
+  messagingSenderId: "328896367702",
+  appId: "1:328896367702:web:2746357303d1b33e1f7ff7",
+  measurementId: "G-NVKST589LK",
 };
 
 let firebaseInitialized = false;
