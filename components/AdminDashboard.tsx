@@ -66,7 +66,9 @@ const AdminDashboard: React.FC<Props> = ({ onBack, currentUser }) => {
 
   // User Modal state
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<Partial<User>>({});
+  // Includes a few mock payment/payout fields (cardName, bankName, …) that are
+  // edited in the admin UI but aren't part of the core User type.
+  const [editingUser, setEditingUser] = useState<Partial<User> & Record<string, any>>({});
 
   // Request expand/edit state
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);

@@ -208,7 +208,7 @@ export const storage = {
    * Get multiple items at once
    */
   async getMany<T = any>(keys: string[]): Promise<(T | null)[]> {
-    return Promise.all(keys.map(key => this.get<T>(key)));
+    return Promise.all(keys.map(key => this.get(key) as Promise<T | null>));
   },
 
   /**
