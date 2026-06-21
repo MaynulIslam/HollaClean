@@ -43,25 +43,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: {
-              sans: ['Poppins', 'sans-serif'],
-              outfit: ['Outfit', 'sans-serif'],
-            },
-            colors: {
-              primary: '#9333ea',
-              secondary: '#ec4899',
-              accent: '#f97316',
-            }
-          }
-        }
-      }
-    </script>
+    <!-- Tailwind CSS is compiled at build time (see index.css + tailwind.config.js) -->
 
     <!-- Structured Data - LocalBusiness -->
     <script type="application/ld+json">
@@ -394,6 +376,6 @@
   <script type="module" src="/index.tsx"></script>
 </head>
   <body>
-    <div id="root"></div>
+    <div id="root"></div>
 </body>
 </html>
