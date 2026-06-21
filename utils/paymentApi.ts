@@ -4,6 +4,9 @@
  * Handles all communication with the HollaClean payment server
  */
 
+import { getToken } from './api';
+import { getCurrentIdToken } from './firebase';
+
 const API_BASE = (process.env.VITE_API_URL || process.env.API_URL || 'http://localhost:3001') + '/api';
 
 // ==================== PAYMENT INTENTS ====================
@@ -158,7 +161,7 @@ export async function transferToCleaner(params: {
 }): Promise<{ transferId: string; amount: number; status: string }> {
   const response = await fetch(`${API_BASE}/payments/transfer-to-cleaner`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: await adminHeaders(),
     body: JSON.stringify(params)
   });
 
@@ -190,30 +193,15 @@ export interface AdminEarnings {
   }>;
 }
 
-// ─── Admin token cache (short-lived HMAC tokens from server) ───
-let _cachedAdminToken: string | null = null;
-let _cachedAdminTokenExpiry = 0;
-
-async function getAdminToken(): Promise<string> {
-  if (_cachedAdminToken && Date.now() < _cachedAdminTokenExpiry - 30_000) {
-    return _cachedAdminToken;
-  }
-  const secret = process.env.VITE_ADMIN_SECRET || process.env.ADMIN_SECRET || '';
-  const res = await fetch(`${API_BASE}/auth/admin-token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret }),
-  });
-  if (!res.ok) throw new Error('Admin authentication failed');
-  const { token, expiresIn } = await res.json();
-  _cachedAdminToken = token;
-  _cachedAdminTokenExpiry = Date.now() + expiresIn;
-  return token;
-}
-
-async function adminHeaders() {
-  const token = await getAdminToken();
-  return { 'Content-Type': 'application/json', 'x-admin-token': token };
+// Admin payment routes are protected server-side by requireRole('admin').
+// Send the logged-in user's Firebase ID token as a Bearer token; the server
+// verifies it and checks that the user's profile has type === 'admin'.
+async function adminHeaders(): Promise<Record<string, string>> {
+  const fresh = await getCurrentIdToken();
+  const token = fresh || getToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return headers;
 }
 
 /**

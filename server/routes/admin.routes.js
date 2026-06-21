@@ -1,14 +1,15 @@
 const express = require('express');
 const { db, docToObj, snapshotToArray, attachParties } = require('../lib/db');
-const { requireAdminToken } = require('../lib/adminAuth');
-const { sanitizeUser } = require('../lib/auth');
+const { sanitizeUser, requireRole } = require('../lib/auth');
 const { serializeRequest } = require('../lib/serialize');
 const { round2, DEFAULTS } = require('../lib/pricing');
 const { v4: uuid } = require('uuid');
 
 const router = express.Router();
 
-router.use(requireAdminToken);
+// Every admin route requires a logged-in Firebase user whose Firestore
+// profile has type === 'admin' (verified server-side via the ID token).
+router.use(requireRole('admin'));
 
 // ─── Overview / lists ───
 

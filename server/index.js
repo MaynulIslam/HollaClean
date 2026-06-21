@@ -45,14 +45,12 @@ app.use((req, res, next) => {
 });
 
 const PLATFORM_FEE_PERCENT = parseInt(process.env.PLATFORM_FEE_PERCENT) || 20;
-const ADMIN_HMAC_SECRET = process.env.ADMIN_SECRET || 'hollaclean-admin-secret-dev';
 
-const {
-  generateAdminToken,
-  verifyAdminToken,
-  requireAdminToken: requireAdminAuth,
-  ADMIN_TOKEN_TTL_MS,
-} = require('./lib/adminAuth');
+// Admin access = a logged-in Firebase user whose Firestore profile has
+// type === 'admin'. Verified server-side via the ID token (same mechanism
+// as the rest of the API), so there is no shared admin secret in the client.
+const { requireRole } = require('./lib/auth');
+const requireAdminAuth = requireRole('admin');
 
 const paymentRateLimits = new Map();
 function paymentRateLimit(req, res, next) {
@@ -164,16 +162,6 @@ app.use('/api/users', require('./routes/users.routes'));
 app.use('/api/reviews', require('./routes/reviews.routes'));
 app.use('/api/services', require('./routes/services.routes'));
 app.use('/api/admin', require('./routes/admin.routes'));
-
-// ==================== ADMIN TOKEN ====================
-
-app.post('/api/auth/admin-token', (req, res) => {
-  const { secret } = req.body;
-  if (!secret || secret !== ADMIN_HMAC_SECRET) {
-    return res.status(401).json({ error: 'Invalid credentials' });
-  }
-  res.json({ token: generateAdminToken(), expiresIn: ADMIN_TOKEN_TTL_MS });
-});
 
 // ==================== OTP ====================
 

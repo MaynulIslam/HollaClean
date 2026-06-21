@@ -12,6 +12,7 @@ import ProfileCompletion from './components/ProfileCompletion';
 import HomeownerDashboard from './components/HomeownerDashboard';
 import CleanerDashboard from './components/CleanerDashboard';
 import AdminDashboard from './components/AdminDashboard';
+import AdminLogin from './components/AdminLogin';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Sparkles } from 'lucide-react';
 
@@ -165,9 +166,21 @@ const App: React.FC = () => {
       }}
     />;
 
-    if (view === 'admin_login') return <AdminDashboard onBack={() => setView('landing')} isAdmin />;
+    // Dedicated admin sign-in screen. It's a real Firebase login that only
+    // admits accounts whose profile is type 'admin' (also enforced server-side
+    // via requireRole), so there's no shared passcode anymore.
+    if (view === 'admin_login') return <AdminLogin
+      onBack={() => setView('landing')}
+      onAdminLogin={(user) => {
+        setCurrentUser(user);
+        setView('dashboard');
+      }}
+    />;
 
     if (currentUser) {
+      if (currentUser.type === 'admin') {
+        return <AdminDashboard currentUser={currentUser} onBack={handleLogout} isAdmin />;
+      }
       if (currentUser.type === 'homeowner') {
         return <HomeownerDashboard user={currentUser} onLogout={handleLogout} onUserUpdate={handleUserUpdate} />;
       }
