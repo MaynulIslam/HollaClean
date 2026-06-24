@@ -22,6 +22,7 @@ import { sendEmail } from '../utils/externalNotifications';
 
 interface Props {
   onBack: () => void;
+  currentUser: User;
   isAdmin?: boolean;
 }
 
@@ -38,9 +39,10 @@ function formatRoomKey(key: string): string {
   return `${label} ${num}`;
 }
 
-const AdminDashboard: React.FC<Props> = ({ onBack }) => {
-  const [authenticated, setAuthenticated] = useState(false);
-  const [pass, setPass] = useState('');
+const AdminDashboard: React.FC<Props> = ({ onBack, currentUser }) => {
+  // Access is granted by the server (requireRole('admin')) and mirrored here:
+  // the dashboard only renders for a logged-in user whose profile is type 'admin'.
+  const authenticated = currentUser?.type === 'admin';
   const [activeTab, setActiveTab] = useState<AdminTab>('requests');
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -64,7 +66,9 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
 
   // User Modal state
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<Partial<User>>({});
+  // Includes a few mock payment/payout fields (cardName, bankName, …) that are
+  // edited in the admin UI but aren't part of the core User type.
+  const [editingUser, setEditingUser] = useState<Partial<User> & Record<string, any>>({});
 
   // Request expand/edit state
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
@@ -79,11 +83,6 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
   const [emailSending, setEmailSending] = useState(false);
   const [emailResult, setEmailResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [emailRecipientMode, setEmailRecipientMode] = useState<'custom' | 'all_homeowners' | 'all_cleaners' | 'all_users'>('custom');
-
-  const checkAuth = () => {
-    if (pass === 'admin') setAuthenticated(true);
-    else alert("Incorrect passcode.");
-  };
 
   const loadAll = async () => {
     // The admin console now reads the shared database (via the admin API) rather
@@ -339,15 +338,11 @@ const AdminDashboard: React.FC<Props> = ({ onBack }) => {
       <div className="min-h-screen flex items-center justify-center bg-gray-900 p-6">
         <Card className="w-full max-w-sm text-center shadow-2xl">
           <Shield className="w-12 h-12 text-purple-600 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold mb-6 text-gray-800">Admin Access Required</h2>
-          <Input 
-            type="password" 
-            placeholder="Enter passcode" 
-            value={pass} 
-            onChange={(e: any) => setPass(e.target.value)}
-          />
-          <Button onClick={checkAuth} className="w-full mt-4">Unlock Console</Button>
-          <button onClick={onBack} className="mt-6 text-gray-400 text-sm hover:underline">Exit Portal</button>
+          <h2 className="text-2xl font-bold mb-3 text-gray-800">Admin access only</h2>
+          <p className="text-gray-500 mb-6 text-sm">
+            Your account doesn't have administrator permissions. Sign in with an admin account to access this console.
+          </p>
+          <button onClick={onBack} className="text-gray-400 text-sm hover:underline">Go back</button>
         </Card>
       </div>
     );

@@ -10,6 +10,8 @@ export const Button: React.FC<{
   disabled?: boolean;
   title?: string;
 }> = ({ children, onClick, type = 'button', variant = 'primary', className = '', disabled, title }) => {
+  title?: string;
+}> = ({ children, onClick, type = 'button', variant = 'primary', className = '', disabled, title }) => {
   const base = "px-6 py-3 rounded-xl font-semibold transition-all duration-200 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2";
   const variants = {
     primary: "bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg hover:shadow-purple-200",
@@ -24,6 +26,7 @@ export const Button: React.FC<{
       type={type}
       onClick={onClick}
       disabled={disabled}
+      title={title}
       title={title}
       className={`${base} ${variants[variant]} ${className}`}
     >

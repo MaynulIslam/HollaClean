@@ -43,3 +43,7 @@ nul
 # Playwright test artifacts
 playwright-report/
 test-results/
+
+# Legacy local payment stores (now in Firestore)
+server/payments.json
+server/connected-accounts.json

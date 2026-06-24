@@ -254,65 +254,11 @@ export const servicesApi = {
 };
 
 // ─── Admin console ──────────────────────────────────────────────────────────
-let _adminToken: string | null = null;
-let _adminTokenExpiry = 0;
-
-async function getAdminToken(): Promise<string> {
-  if (_adminToken && Date.now() < _adminTokenExpiry - 30_000) return _adminToken;
-  const secret = process.env.VITE_ADMIN_SECRET || process.env.ADMIN_SECRET || '';
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}/auth/admin-token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret }),
-    });
-  } catch {
-    throw new ApiError('Network error — could not reach the server', 0);
-  }
-  if (!res.ok) throw new ApiError('Admin authentication failed', res.status);
-  const { token, expiresIn } = await res.json();
-  _adminToken = token;
-  _adminTokenExpiry = Date.now() + (expiresIn || 0);
-  return token;
-}
-
-async function adminRequest<T>(path: string, opts: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body } = opts;
-  const token = await getAdminToken();
-  const headers: Record<string, string> = { 'x-admin-token': token };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
-
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}${path}`, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  } catch {
-    throw new ApiError('Network error — could not reach the server', 0);
-  }
-  if (res.status === 401) {
-    _adminToken = null;
-    _adminTokenExpiry = 0;
-  }
-
-  let data: any = null;
-  const text = await res.text();
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = text;
-    }
-  }
-  if (!res.ok) {
-    const message = (data && data.error) || `Request failed (${res.status})`;
-    throw new ApiError(message, res.status);
-  }
-  return data as T;
-}
+// Admin routes are protected server-side by requireRole('admin'): the caller
+// must be a logged-in Firebase user whose profile has type === 'admin'. We just
+// reuse the normal authenticated request() (which sends the Bearer ID token) —
+// there is no separate admin secret in the client anymore.
+const adminRequest = request;
 
 export const adminApi = {
   async listRequests(): Promise<CleaningRequest[]> {

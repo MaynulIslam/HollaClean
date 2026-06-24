@@ -1,10 +1,16 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
+const {
+  getPayment,
+  setPayment,
+  getAllPayments,
+  getConnectedAccount,
+  setConnectedAccount,
+  findConnectedAccountByAccountId,
+} = require('./lib/paymentStore');
 
 const app = express();
 
@@ -45,14 +51,12 @@ app.use((req, res, next) => {
 });
 
 const PLATFORM_FEE_PERCENT = parseInt(process.env.PLATFORM_FEE_PERCENT) || 20;
-const ADMIN_HMAC_SECRET = process.env.ADMIN_SECRET || 'hollaclean-admin-secret-dev';
 
-const {
-  generateAdminToken,
-  verifyAdminToken,
-  requireAdminToken: requireAdminAuth,
-  ADMIN_TOKEN_TTL_MS,
-} = require('./lib/adminAuth');
+// Admin access = a logged-in Firebase user whose Firestore profile has
+// type === 'admin'. Verified server-side via the ID token (same mechanism
+// as the rest of the API), so there is no shared admin secret in the client.
+const { requireRole } = require('./lib/auth');
+const requireAdminAuth = requireRole('admin');
 
 const paymentRateLimits = new Map();
 function paymentRateLimit(req, res, next) {
@@ -72,52 +76,8 @@ function paymentRateLimit(req, res, next) {
   next();
 }
 
-const PAYMENTS_FILE = path.join(__dirname, 'payments.json');
-function loadPayments() {
-  try {
-    if (fs.existsSync(PAYMENTS_FILE)) {
-      const data = JSON.parse(fs.readFileSync(PAYMENTS_FILE, 'utf8'));
-      return new Map(Object.entries(data));
-    }
-  } catch (err) {
-    console.error('Failed to load payments:', err.message);
-  }
-  return new Map();
-}
-function savePayments(paymentsMap) {
-  try {
-    const obj = Object.fromEntries(paymentsMap);
-    fs.writeFileSync(PAYMENTS_FILE, JSON.stringify(obj, null, 2));
-  } catch (err) {
-    console.error('Failed to save payments:', err.message);
-  }
-}
-const payments = loadPayments();
-console.log(`Loaded ${payments.size} payment record(s) from disk`);
-const platformEarnings = { total: 0, transactions: [] };
-
-const CONNECTED_ACCOUNTS_FILE = path.join(__dirname, 'connected-accounts.json');
-function loadConnectedAccounts() {
-  try {
-    if (fs.existsSync(CONNECTED_ACCOUNTS_FILE)) {
-      const data = JSON.parse(fs.readFileSync(CONNECTED_ACCOUNTS_FILE, 'utf8'));
-      return new Map(Object.entries(data));
-    }
-  } catch (err) {
-    console.error('Failed to load connected accounts:', err.message);
-  }
-  return new Map();
-}
-function saveConnectedAccounts() {
-  try {
-    const obj = Object.fromEntries(connectedAccounts);
-    fs.writeFileSync(CONNECTED_ACCOUNTS_FILE, JSON.stringify(obj, null, 2));
-  } catch (err) {
-    console.error('Failed to save connected accounts:', err.message);
-  }
-}
-const connectedAccounts = loadConnectedAccounts();
-console.log(`Loaded ${connectedAccounts.size} connected account(s) from disk`);
+// Payment records and Stripe connected accounts are persisted in Firestore
+// (see lib/paymentStore) so they survive server restarts/redeploys.
 
 // ==================== ROOT & HEALTH CHECK ====================
 
@@ -164,16 +124,6 @@ app.use('/api/users', require('./routes/users.routes'));
 app.use('/api/reviews', require('./routes/reviews.routes'));
 app.use('/api/services', require('./routes/services.routes'));
 app.use('/api/admin', require('./routes/admin.routes'));
-
-// ==================== ADMIN TOKEN ====================
-
-app.post('/api/auth/admin-token', (req, res) => {
-  const { secret } = req.body;
-  if (!secret || secret !== ADMIN_HMAC_SECRET) {
-    return res.status(401).json({ error: 'Invalid credentials' });
-  }
-  res.json({ token: generateAdminToken(), expiresIn: ADMIN_TOKEN_TTL_MS });
-});
 
 // ==================== OTP ====================
 
@@ -258,18 +208,17 @@ app.post('/api/payments/create-intent', paymentRateLimit, async (req, res) => {
     const idempotencyKey = `intent-${requestId}`;
     const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams, { idempotencyKey });
 
-    payments.set(paymentIntent.id, {
+    await setPayment(paymentIntent.id, {
       id: paymentIntent.id,
       requestId,
       homeownerId,
-      cleanerId,
+      cleanerId: cleanerId || null,
       amount: amount,
       platformFee: platformFee / 100,
       cleanerPayout: cleanerPayout / 100,
       status: 'pending',
       createdAt: new Date().toISOString()
     });
-    savePayments(payments);
 
     res.json({
       clientSecret: paymentIntent.client_secret,
@@ -290,7 +239,7 @@ app.get('/api/payments/:paymentIntentId', async (req, res) => {
   try {
     const { paymentIntentId } = req.params;
     const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-    const localPayment = payments.get(paymentIntentId);
+    const localPayment = await getPayment(paymentIntentId);
     res.json({
       status: paymentIntent.status,
       amount: paymentIntent.amount / 100,
@@ -307,7 +256,7 @@ app.post('/api/payments/transfer-to-cleaner', requireAdminAuth, async (req, res)
     if (!paymentIntentId || !cleanerId || !amount) {
       return res.status(400).json({ error: 'paymentIntentId, cleanerId and amount are required' });
     }
-    const storedPayment = payments.get(paymentIntentId);
+    const storedPayment = await getPayment(paymentIntentId);
     if (!storedPayment) return res.status(404).json({ error: 'Payment record not found' });
     if (storedPayment.status !== 'succeeded') {
       return res.status(400).json({ error: 'Payment has not been completed yet' });
@@ -318,7 +267,7 @@ app.post('/api/payments/transfer-to-cleaner', requireAdminAuth, async (req, res)
         error: `Transfer amount $${amount} does not match stored payout $${storedPayment.cleanerPayout}`
       });
     }
-    const accountInfo = connectedAccounts.get(cleanerId);
+    const accountInfo = await getConnectedAccount(cleanerId);
     if (!accountInfo?.accountId) {
       return res.status(404).json({
         error: 'Cleaner has no connected Stripe account',
@@ -349,7 +298,7 @@ app.post('/api/connect/create-account', async (req, res) => {
     if (!cleanerId || !email) {
       return res.status(400).json({ error: 'cleanerId and email are required' });
     }
-    const existing = connectedAccounts.get(cleanerId);
+    const existing = await getConnectedAccount(cleanerId);
     if (existing?.accountId) {
       return res.json({ accountId: existing.accountId, alreadyExists: true });
     }
@@ -366,8 +315,7 @@ app.post('/api/connect/create-account', async (req, res) => {
       },
       metadata: { cleanerId, platform: 'hollaclean' }
     });
-    connectedAccounts.set(cleanerId, { accountId: account.id, email, name, status: 'pending', createdAt: new Date().toISOString() });
-    saveConnectedAccounts();
+    await setConnectedAccount(cleanerId, { accountId: account.id, email, name, status: 'pending', createdAt: new Date().toISOString() });
     res.json({ accountId: account.id, message: 'Account created. Complete onboarding to start receiving payments.' });
   } catch (error) {
     console.error('Connect account error:', error);
@@ -378,7 +326,7 @@ app.post('/api/connect/create-account', async (req, res) => {
 app.post('/api/connect/onboarding-link', async (req, res) => {
   try {
     const { cleanerId } = req.body;
-    const accountInfo = connectedAccounts.get(cleanerId);
+    const accountInfo = await getConnectedAccount(cleanerId);
     if (!accountInfo?.accountId) {
       return res.status(404).json({ error: 'No connected account found. Create one first.' });
     }
@@ -398,15 +346,14 @@ app.post('/api/connect/onboarding-link', async (req, res) => {
 app.get('/api/connect/status/:cleanerId', async (req, res) => {
   try {
     const { cleanerId } = req.params;
-    const accountInfo = connectedAccounts.get(cleanerId);
+    const accountInfo = await getConnectedAccount(cleanerId);
     if (!accountInfo?.accountId) {
       return res.json({ connected: false, status: 'not_started', message: 'No payment account set up yet' });
     }
     const account = await stripe.accounts.retrieve(accountInfo.accountId);
     const isComplete = account.details_submitted && account.payouts_enabled && account.charges_enabled;
     accountInfo.status = isComplete ? 'active' : 'pending';
-    connectedAccounts.set(cleanerId, accountInfo);
-    saveConnectedAccounts();
+    await setConnectedAccount(cleanerId, accountInfo);
     res.json({
       connected: true,
       status: isComplete ? 'active' : 'pending',
@@ -425,7 +372,7 @@ app.get('/api/connect/status/:cleanerId', async (req, res) => {
 app.post('/api/connect/dashboard-link', async (req, res) => {
   try {
     const { cleanerId } = req.body;
-    const accountInfo = connectedAccounts.get(cleanerId);
+    const accountInfo = await getConnectedAccount(cleanerId);
     if (!accountInfo?.accountId) {
       return res.status(404).json({ error: 'No connected account found' });
     }
@@ -440,7 +387,7 @@ app.post('/api/connect/dashboard-link', async (req, res) => {
 app.get('/api/connect/balance/:cleanerId', async (req, res) => {
   try {
     const { cleanerId } = req.params;
-    const accountInfo = connectedAccounts.get(cleanerId);
+    const accountInfo = await getConnectedAccount(cleanerId);
     if (!accountInfo?.accountId) {
       return res.json({ available: 0, pending: 0, currency: 'cad' });
     }
@@ -457,7 +404,7 @@ app.get('/api/connect/balance/:cleanerId', async (req, res) => {
 
 app.get('/api/admin/earnings', requireAdminAuth, async (req, res) => {
   try {
-    const allPayments = Array.from(payments.values());
+    const allPayments = await getAllPayments();
     const completedPayments = allPayments.filter(p => p.status === 'succeeded');
     const totalRevenue = completedPayments.reduce((sum, p) => sum + p.amount, 0);
     const totalPlatformFees = completedPayments.reduce((sum, p) => sum + p.platformFee, 0);
@@ -507,48 +454,43 @@ app.post('/api/webhooks/stripe',
     }
 
     switch (event.type) {
-      case 'payment_intent.succeeded':
+      case 'payment_intent.succeeded': {
         const paymentIntent = event.data.object;
         console.log('Payment succeeded:', paymentIntent.id);
-        const payment = payments.get(paymentIntent.id);
+        const payment = await getPayment(paymentIntent.id);
         if (payment) {
-          payment.status = 'succeeded';
-          payment.completedAt = new Date().toISOString();
-          payments.set(paymentIntent.id, payment);
-          savePayments(payments);
-          platformEarnings.total += payment.platformFee;
-          platformEarnings.transactions.push({
-            paymentId: paymentIntent.id,
-            amount: payment.platformFee,
-            timestamp: new Date().toISOString()
+          await setPayment(paymentIntent.id, {
+            status: 'succeeded',
+            completedAt: new Date().toISOString(),
           });
         }
         break;
+      }
 
-      case 'payment_intent.payment_failed':
+      case 'payment_intent.payment_failed': {
         const failedPayment = event.data.object;
         console.log('Payment failed:', failedPayment.id);
-        const failedRecord = payments.get(failedPayment.id);
+        const failedRecord = await getPayment(failedPayment.id);
         if (failedRecord) {
-          failedRecord.status = 'failed';
-          failedRecord.error = failedPayment.last_payment_error?.message;
-          payments.set(failedPayment.id, failedRecord);
-          savePayments(payments);
+          await setPayment(failedPayment.id, {
+            status: 'failed',
+            error: failedPayment.last_payment_error?.message || null,
+          });
         }
         break;
+      }
 
-      case 'account.updated':
+      case 'account.updated': {
         const account = event.data.object;
         console.log('Connected account updated:', account.id);
-        for (const [cleanerId, info] of connectedAccounts.entries()) {
-          if (info.accountId === account.id) {
-            info.status = account.payouts_enabled ? 'active' : 'pending';
-            connectedAccounts.set(cleanerId, info);
-            saveConnectedAccounts();
-            break;
-          }
+        const match = await findConnectedAccountByAccountId(account.id);
+        if (match) {
+          await setConnectedAccount(match.cleanerId, {
+            status: account.payouts_enabled ? 'active' : 'pending',
+          });
         }
         break;
+      }
 
       case 'payment_intent.created':
       case 'charge.succeeded':

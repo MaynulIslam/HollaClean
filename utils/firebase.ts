@@ -93,6 +93,7 @@ export async function signOutFirebase(): Promise<void> {
 /** Get a fresh ID token for the currently signed-in Firebase user. */
 export async function getCurrentIdToken(): Promise<string | null> {
   if (!isFirebaseAvailable()) return null;
+  initFirebase();
   const currentUser = firebase.auth().currentUser;
   if (!currentUser) return null;
   try {
