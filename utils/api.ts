@@ -383,6 +383,19 @@ export const adminApi = {
     );
     return r;
   },
+
+  async getConfig(): Promise<Record<string, any>> {
+    const { config } = await adminRequest<{ config: Record<string, any> }>('/admin/config');
+    return config;
+  },
+
+  async saveConfig(config: Record<string, any>): Promise<Record<string, any>> {
+    const { config: saved } = await adminRequest<{ config: Record<string, any> }>('/admin/config', {
+      method: 'PATCH',
+      body: config,
+    });
+    return saved;
+  },
 };
 
 export const api = {

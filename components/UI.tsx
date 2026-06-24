@@ -8,7 +8,8 @@ export const Button: React.FC<{
   variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
   className?: string;
   disabled?: boolean;
-}> = ({ children, onClick, type = 'button', variant = 'primary', className = '', disabled }) => {
+  title?: string;
+}> = ({ children, onClick, type = 'button', variant = 'primary', className = '', disabled, title }) => {
   const base = "px-6 py-3 rounded-xl font-semibold transition-all duration-200 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2";
   const variants = {
     primary: "bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg hover:shadow-purple-200",
@@ -20,9 +21,10 @@ export const Button: React.FC<{
   
   return (
     <button 
-      type={type} 
-      onClick={onClick} 
+      type={type}
+      onClick={onClick}
       disabled={disabled}
+      title={title}
       className={`${base} ${variants[variant]} ${className}`}
     >
       {children}
@@ -68,8 +70,8 @@ export const Badge: React.FC<{
   );
 };
 
-export const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = "" }) => (
-  <div className={`glass-card p-6 rounded-3xl shadow-xl border border-white/50 ${className}`}>
+export const Card: React.FC<{ children: React.ReactNode; className?: string; onClick?: () => void }> = ({ children, className = "", onClick }) => (
+  <div className={`glass-card p-6 rounded-3xl shadow-xl border border-white/50 ${className}`} onClick={onClick}>
     {children}
   </div>
 );
