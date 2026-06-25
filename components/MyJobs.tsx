@@ -4,7 +4,7 @@ import { CleaningRequest } from '../types';
 import { api } from '../utils/api';
 import { Card, Button, Badge } from './UI';
 import ComingSoon, { useComingSoon } from './ComingSoon';
-import { CONFIG } from '../utils/config';
+import { CONFIG, getPlatformConfig, loadPlatformConfig, PlatformConfig } from '../utils/config';
 import { NotificationHelpers } from '../utils/notifications';
 import { ExternalNotify } from '../utils/externalNotifications';
 import { stopRemindersForRequest } from '../utils/reminderService';
@@ -15,7 +15,6 @@ import {
   Navigation, XCircle, RefreshCw, Sparkles, Image as ImageIcon, CreditCard, Mail, X,
   LocateFixed, Loader2, ShieldAlert
 } from 'lucide-react';
-import { getPlatformConfig } from '../utils/config';
 import { getCleanerPosition, checkProximity, formatDistance, Coordinates } from '../utils/geolocation';
 
 
@@ -41,6 +40,7 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState<{ message: string; email?: string } | null>(null);
   const [startingJobId, setStartingJobId] = useState<string | null>(null);
+  const [platformCfg, setPlatformCfg] = useState<PlatformConfig>(getPlatformConfig());
   const [proximityError, setProximityError] = useState<string | null>(null);
   const { isOpen: isComingSoonOpen, feature: comingSoonFeature, showComingSoon, hideComingSoon } = useComingSoon();
 
@@ -66,6 +66,7 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
 
   useEffect(() => {
     loadJobs();
+    loadPlatformConfig().then(setPlatformCfg).catch(() => {});
     const interval = setInterval(loadJobs, 10000);
     return () => clearInterval(interval);
   }, [type]);
@@ -140,7 +141,7 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
       }
 
       const cleanerPos = await getCleanerPosition();
-      const maxDist = getPlatformConfig().geolocation.maxAcceptDistance;
+      const maxDist = platformCfg.geolocation.maxAcceptDistance;
       const result = await checkProximity(cleanerPos, jobAddress, maxDist);
 
       if (result.distance !== null && result.distance > maxDist) {
@@ -453,7 +454,7 @@ const MyJobs: React.FC<Props> = ({ cleanerId, type }) => {
                             {!job.locationApprovalStatus && (
                               <p className="text-xs text-gray-400 flex items-center gap-1">
                                 <LocateFixed className="w-3 h-3" />
-                                You must be within {getPlatformConfig().geolocation.maxAcceptDistance}m of the address to start
+                                You must be within {platformCfg.geolocation.maxAcceptDistance}m of the address to start
                               </p>
                             )}
                           </>

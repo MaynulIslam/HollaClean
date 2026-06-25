@@ -12,7 +12,7 @@ import ReviewModal from './ReviewModal';
 import ComingSoon, { useComingSoon } from './ComingSoon';
 import Invoice from './Invoice';
 import VerificationBadge from './VerificationBadge';
-import { CONFIG, getPlatformConfig } from '../utils/config';
+import { CONFIG, getPlatformConfig, loadPlatformConfig, PlatformConfig } from '../utils/config';
 
 // Format room key like "bedroom_1" → "Bedroom 1"
 function formatRoomKey(key: string): string {
@@ -38,6 +38,7 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
   const [filter, setFilter] = useState<'all' | 'active' | 'completed' | 'cancelled'>('all');
   const [isLoading, setIsLoading] = useState(true);
   const [cleanerVerifications, setCleanerVerifications] = useState<Record<string, { email: boolean; phone: boolean; address: boolean }>>({});
+  const [platformCfg, setPlatformCfg] = useState<PlatformConfig>(getPlatformConfig());
   const { isOpen: isComingSoonOpen, feature: comingSoonFeature, showComingSoon, hideComingSoon } = useComingSoon();
 
   const handleMessageClick = () => {
@@ -78,6 +79,7 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
 
   useEffect(() => {
     loadRequests();
+    loadPlatformConfig().then(setPlatformCfg).catch(() => {});
     const interval = setInterval(loadRequests, 15000);
     return () => clearInterval(interval);
   }, []);
@@ -357,7 +359,7 @@ const MyRequests: React.FC<Props> = ({ homeownerId, onBack }) => {
                               <span className="font-semibold">${((Number(req.totalAmount) || 0) - (Number(req.taxAmount) || 0)).toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-gray-600">{getPlatformConfig().pricing.taxLabel} ({Math.round((req.taxRate || 0) * 100)}%)</span>
+                              <span className="text-gray-600">{platformCfg.pricing.taxLabel} ({Math.round((req.taxRate || 0) * 100)}%)</span>
                               <span className="font-semibold">${Number(req.taxAmount).toFixed(2)}</span>
                             </div>
                           </>

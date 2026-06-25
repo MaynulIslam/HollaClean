@@ -10,8 +10,6 @@ export const Button: React.FC<{
   disabled?: boolean;
   title?: string;
 }> = ({ children, onClick, type = 'button', variant = 'primary', className = '', disabled, title }) => {
-  title?: string;
-}> = ({ children, onClick, type = 'button', variant = 'primary', className = '', disabled, title }) => {
   const base = "px-6 py-3 rounded-xl font-semibold transition-all duration-200 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2";
   const variants = {
     primary: "bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg hover:shadow-purple-200",
@@ -20,13 +18,12 @@ export const Button: React.FC<{
     ghost: "bg-transparent text-gray-600 hover:bg-gray-100",
     danger: "bg-red-500 text-white shadow-lg hover:bg-red-600",
   };
-  
+
   return (
-    <button 
+    <button
       type={type}
       onClick={onClick}
       disabled={disabled}
-      title={title}
       title={title}
       className={`${base} ${variants[variant]} ${className}`}
     >
@@ -42,7 +39,7 @@ export const Input: React.FC<{
 }> = ({ label, error, ...props }) => (
   <div className="flex flex-col gap-1 w-full">
     {label && <label className="text-sm font-medium text-gray-700 ml-1">{label}</label>}
-    <input 
+    <input
       className={`w-full px-4 py-3 rounded-xl border-2 transition-all outline-none focus:ring-2 focus:ring-purple-200 ${error ? 'border-red-400' : 'border-gray-100 focus:border-purple-500'}`}
       {...props}
     />
