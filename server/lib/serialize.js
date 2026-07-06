@@ -32,6 +32,7 @@ function serializeRequest(r) {
     acceptedAt: toISO(r.acceptedAt),
     completedAt: toISO(r.completedAt),
 
+    basePrice: r.basePrice != null ? r.basePrice : undefined,
     totalAmount: r.totalAmount,
     taxAmount: r.taxAmount,
     taxRate: r.taxRate,

@@ -16,8 +16,23 @@
 
 const DEFAULTS = {
   taxRate: 0.13,          // 13% HST (Ontario)
-  commissionRate: 0.20,   // 20% platform fee
+  commissionRate: 0.20,   // 20% platform fee (legacy hourly model)
   defaultHourlyRate: 35,
+};
+
+/**
+ * Name-your-price model (mobile app / marketplace v2, "Option B"):
+ * the customer names a base price B, the cleaner accepts or counters,
+ * and once agreed:
+ *   customerTotal   = B + B * taxRate          (what the customer pays)
+ *   cleanerPayout   = B - B * commissionRate   (what the cleaner receives)
+ *   platformRevenue = B * commissionRate
+ *   taxAmount       = B * taxRate              (HST, remitted to CRA)
+ */
+const JOB_PRICING = {
+  taxRate: 0.13,        // 13% HST (Ontario)
+  commissionRate: 0.30, // 30% platform commission (from the cleaner)
+  minBasePrice: 20,     // jobs cannot be posted below this
 };
 
 function round2(n) {
@@ -48,4 +63,29 @@ function computePricing({ hourlyRate, hours, taxRate, commissionRate } = {}) {
   };
 }
 
-module.exports = { computePricing, DEFAULTS, round2 };
+/**
+ * Compute all money fields for a name-your-price job with base price [basePrice].
+ * Throws if the base price is below the platform minimum.
+ */
+function computeJobPricing(basePrice) {
+  const base = round2(basePrice);
+  if (!(base >= JOB_PRICING.minBasePrice)) {
+    const err = new Error(`Base price must be at least $${JOB_PRICING.minBasePrice}`);
+    err.code = 'BASE_PRICE_TOO_LOW';
+    throw err;
+  }
+  const taxAmount = round2(base * JOB_PRICING.taxRate);
+  const customerTotal = round2(base + taxAmount);
+  const platformCommission = round2(base * JOB_PRICING.commissionRate);
+  const cleanerPayout = round2(base - platformCommission);
+  return {
+    basePrice: base,
+    taxRate: JOB_PRICING.taxRate,
+    taxAmount,
+    totalAmount: customerTotal,
+    platformCommission,
+    cleanerPayout,
+  };
+}
+
+module.exports = { computePricing, computeJobPricing, DEFAULTS, JOB_PRICING, round2 };

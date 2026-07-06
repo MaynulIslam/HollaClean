@@ -1,7 +1,7 @@
 const express = require('express');
 const { db, docToObj, snapshotToArray, attachParties } = require('../lib/db');
 const { requireAuth } = require('../lib/auth');
-const { computePricing } = require('../lib/pricing');
+const { computePricing, computeJobPricing } = require('../lib/pricing');
 const { serializeRequest } = require('../lib/serialize');
 const { v4: uuid } = require('uuid');
 
@@ -20,6 +20,21 @@ router.post('/', requireAuth, async (req, res) => {
 
     const hours = Number(b.hours) > 0 ? Math.round(Number(b.hours)) : 1;
     const id = uuid();
+
+    // Name-your-price model: the customer offers a base price and the server
+    // computes all money fields (tax, commission, payout). The client never
+    // sets derived amounts.
+    let jobPricing = null;
+    if (b.basePrice != null) {
+      try {
+        jobPricing = computeJobPricing(Number(b.basePrice));
+      } catch (e) {
+        if (e.code === 'BASE_PRICE_TOO_LOW') {
+          return res.status(400).json({ error: e.message });
+        }
+        throw e;
+      }
+    }
 
     const data = {
       homeownerId: req.user.id,
@@ -44,6 +59,18 @@ router.post('/', requireAuth, async (req, res) => {
       paymentStatus: b.paymentIntentId ? 'paid' : 'pending',
       paidAt: b.paymentIntentId ? new Date() : null,
       createdAt: new Date(),
+      // Money fields (name-your-price jobs only; legacy hourly requests get
+      // these at accept time instead).
+      ...(jobPricing
+        ? {
+            basePrice: jobPricing.basePrice,
+            taxRate: jobPricing.taxRate,
+            taxAmount: jobPricing.taxAmount,
+            totalAmount: jobPricing.totalAmount,
+            platformCommission: jobPricing.platformCommission,
+            cleanerPayout: jobPricing.cleanerPayout,
+          }
+        : {}),
     };
 
     await db.collection('requests').doc(id).set(data);
