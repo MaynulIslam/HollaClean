@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, CleaningRequest } from '../types';
 import { api } from '../utils/api';
-import { getPlatformConfig } from '../utils/config';
+import { getPlatformConfig, loadPlatformConfig, PlatformConfig } from '../utils/config';
 import { Button, Card, Input } from './UI';
 import PaymentCheckout from './PaymentCheckout';
 import {
@@ -92,9 +92,6 @@ const serviceDetails: Record<string, {
   }
 };
 
-// Photo tips loaded from admin-editable config
-const roomPhotoTips: Record<string, string> = getPlatformConfig().photoTips;
-
 // Maps room key prefix to a friendly label
 function formatRoomKey(key: string): string {
   const parts = key.split('_');
@@ -133,20 +130,20 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
   const [roomImages, setRoomImages] = useState<Record<string, string[]>>({});
   const [serviceOptions, setServiceOptions] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [platformCfg, setPlatformCfg] = useState<PlatformConfig>(getPlatformConfig());
 
   useEffect(() => {
-    const loadServices = async () => {
-      try {
-        const services = await api.services.list();
-        if (services.length > 0) {
-          setServiceOptions(services.map((s) => s.name));
-          setFormData(prev => ({ ...prev, serviceType: services[0].name }));
-        }
-      } catch {
-        /* leave service options empty if the catalog can't be loaded */
+    const loadAll = async () => {
+      const [services] = await Promise.all([
+        api.services.list().catch(() => []),
+        loadPlatformConfig().then(setPlatformCfg).catch(() => {}),
+      ]);
+      if (services.length > 0) {
+        setServiceOptions(services.map((s) => s.name));
+        setFormData(prev => ({ ...prev, serviceType: services[0].name }));
       }
     };
-    loadServices();
+    loadAll();
   }, []);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -271,13 +268,12 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
   const sqftMultiplier = sqftNum > 2000 ? 1.2 : sqftNum > 1000 ? 1.1 : 1.0;
   const petAddon = formData.hasPets ? 1.05 : 1.0;
   const hours = Number(formData.hours) || 3;
-  const estMin = Math.round(hours * 25 * sqftMultiplier * petAddon);
-  const estMax = Math.round(hours * 45 * sqftMultiplier * petAddon);
+  const estMin = Math.round(hours * platformCfg.pricing.minimumHourlyRate * sqftMultiplier * petAddon);
+  const estMax = Math.round(hours * platformCfg.pricing.maximumHourlyRate * sqftMultiplier * petAddon);
   const currentServiceDetails = serviceDetails[formData.serviceType] || serviceDetails['Regular Cleaning'];
 
   // Build preview request for payment step
   const previewRequest = useMemo((): CleaningRequest => {
-    const platformCfg = getPlatformConfig();
     const safeHours = Number(formData.hours) || 3;
     const hourlyRateAvg = 35;
     const subtotal = hourlyRateAvg * safeHours;
@@ -329,7 +325,7 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
       paymentStatus: 'pending',
       createdAt: new Date().toISOString()
     };
-  }, [formData, roomImages, user]);
+  }, [formData, roomImages, user, platformCfg]);
 
   const handlePaymentSuccess = async (paymentIntentId: string) => {
     // Create the request, recording the upfront payment reference. The server
@@ -767,7 +763,7 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
                       {/* Photo tip */}
                       <p className="text-xs text-gray-400 mb-3 flex items-start gap-1.5">
                         <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-purple-400" />
-                        {roomPhotoTips[room.typeKey] || roomPhotoTips.other}
+                        {platformCfg.photoTips[room.typeKey] || platformCfg.photoTips.other}
                       </p>
                       <div className="flex flex-wrap gap-3">
                         {(roomImages[room.key] || []).map((img, idx) => (
@@ -997,7 +993,6 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
 
             {/* Pricing Breakdown */}
             {(() => {
-              const platformCfg = getPlatformConfig();
               const taxRate = platformCfg.pricing.taxRate;
               const taxLabel = platformCfg.pricing.taxLabel;
               const taxMin = Math.round(estMin * taxRate * 100) / 100;
@@ -1013,7 +1008,7 @@ const CreateRequest: React.FC<Props> = ({ user, onSuccess, onBack }) => {
 
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Subtotal ({formData.hours}h @ $25-45/hr)</span>
+                      <span className="text-gray-600">Subtotal ({formData.hours}h @ ${platformCfg.pricing.minimumHourlyRate}-{platformCfg.pricing.maximumHourlyRate}/hr)</span>
                       <span className="font-bold text-gray-900">${estMin} - ${estMax}</span>
                     </div>
                     {taxRate > 0 && (

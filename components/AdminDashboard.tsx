@@ -17,7 +17,7 @@ import {
   Banknote, Send, Loader2, ExternalLink
 } from 'lucide-react';
 import { transferToCleaner } from '../utils/paymentApi';
-import { getPlatformConfig } from '../utils/config';
+import { getPlatformConfig, loadPlatformConfig } from '../utils/config';
 import { sendEmail } from '../utils/externalNotifications';
 
 interface Props {
@@ -93,6 +93,7 @@ const AdminDashboard: React.FC<Props> = ({ onBack, currentUser }) => {
         api.admin.listRequests(),
         api.admin.listUsers(),
         api.admin.listServices(),
+        loadPlatformConfig(),
       ]);
       setServices(savedServices);
 

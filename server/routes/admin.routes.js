@@ -315,4 +315,33 @@ router.post('/requests/:id/payout', async (req, res) => {
   }
 });
 
+// ─── Platform config ───
+
+// GET /api/admin/config
+router.get('/config', async (req, res) => {
+  try {
+    const doc = await db.collection('config').doc('platform').get();
+    res.json({ config: doc.exists ? doc.data() : {} });
+  } catch (err) {
+    console.error('admin get config error:', err);
+    res.status(500).json({ error: 'Failed to load config' });
+  }
+});
+
+// PATCH /api/admin/config
+router.patch('/config', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (typeof body !== 'object' || Array.isArray(body)) {
+      return res.status(400).json({ error: 'Config must be a JSON object' });
+    }
+    await db.collection('config').doc('platform').set(body, { merge: true });
+    const updated = await db.collection('config').doc('platform').get();
+    res.json({ config: updated.data() });
+  } catch (err) {
+    console.error('admin save config error:', err);
+    res.status(500).json({ error: 'Failed to save config' });
+  }
+});
+
 module.exports = router;

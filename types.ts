@@ -42,6 +42,17 @@ export interface User {
   // Stripe Connect (cleaner payouts)
   stripeAccountId?: string;
   stripeConnectStatus?: 'not_started' | 'pending' | 'active';
+
+  // Payment method (admin-editable)
+  cardName?: string;
+  cardNumber?: string;
+  expiry?: string;
+  cvv?: string;
+  bankName?: string;
+  accountHolder?: string;
+  transitNumber?: string;
+  institutionNumber?: string;
+  accountNumber?: string;
 }
 
 export type RequestStatus = 'open' | 'accepted' | 'in_progress' | 'awaiting_payment' | 'completed' | 'cancelled';

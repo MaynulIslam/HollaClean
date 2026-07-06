@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CleaningRequest } from '../types';
 import { createPaymentIntent, PaymentBreakdown } from '../utils/paymentApi';
-import { CONFIG, getPlatformConfig } from '../utils/config';
+import { CONFIG, getPlatformConfig, loadPlatformConfig, PlatformConfig } from '../utils/config';
 import {
   CreditCard, Lock, CheckCircle, AlertCircle, Loader2, X,
   DollarSign, Calendar, Clock, MapPin, Shield, Sparkles
@@ -41,6 +41,11 @@ const PaymentCheckout: React.FC<PaymentCheckoutProps> = ({
   const elementMountedRef = useRef(false);
 
   const [stripeUnavailable, setStripeUnavailable] = useState(false);
+  const [platformCfg, setPlatformCfg] = useState<PlatformConfig>(getPlatformConfig());
+
+  useEffect(() => {
+    loadPlatformConfig().then(setPlatformCfg).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (isOpen && request) {
@@ -145,7 +150,7 @@ const PaymentCheckout: React.FC<PaymentCheckoutProps> = ({
         homeownerEmail,
         cleanerId: mode === 'upfront' ? 'pending' : (request.cleanerId || 'pending'),
         description: `${request.serviceType} - ${request.hours}hrs`,
-        commissionRate: getPlatformConfig().pricing.platformCommissionRate,
+        commissionRate: platformCfg.pricing.platformCommissionRate,
       });
 
       setClientSecret(result.clientSecret);
@@ -262,7 +267,7 @@ const PaymentCheckout: React.FC<PaymentCheckoutProps> = ({
                       <span className="font-medium">${((Number(request.totalAmount) || 0) - (Number(request.taxAmount) || 0)).toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-600">{getPlatformConfig().pricing.taxLabel} ({Math.round((request.taxRate || 0) * 100)}%)</span>
+                      <span className="text-gray-600">{platformCfg.pricing.taxLabel} ({Math.round((request.taxRate || 0) * 100)}%)</span>
                       <span className="font-medium">${Number(request.taxAmount).toFixed(2)}</span>
                     </div>
                   </>

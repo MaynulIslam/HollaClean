@@ -18,7 +18,7 @@ export const Button: React.FC<{
     ghost: "bg-transparent text-gray-600 hover:bg-gray-100",
     danger: "bg-red-500 text-white shadow-lg hover:bg-red-600",
   };
-  
+
   return (
     <button
       type={type}
@@ -39,7 +39,7 @@ export const Input: React.FC<{
 }> = ({ label, error, ...props }) => (
   <div className="flex flex-col gap-1 w-full">
     {label && <label className="text-sm font-medium text-gray-700 ml-1">{label}</label>}
-    <input 
+    <input
       className={`w-full px-4 py-3 rounded-xl border-2 transition-all outline-none focus:ring-2 focus:ring-purple-200 ${error ? 'border-red-400' : 'border-gray-100 focus:border-purple-500'}`}
       {...props}
     />
@@ -71,7 +71,7 @@ export const Badge: React.FC<{
 };
 
 export const Card: React.FC<{ children: React.ReactNode; className?: string; onClick?: () => void }> = ({ children, className = "", onClick }) => (
-  <div onClick={onClick} className={`glass-card p-6 rounded-3xl shadow-xl border border-white/50 ${className}`}>
+  <div className={`glass-card p-6 rounded-3xl shadow-xl border border-white/50 ${className}`} onClick={onClick}>
     {children}
   </div>
 );

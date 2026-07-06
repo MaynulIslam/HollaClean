@@ -160,8 +160,6 @@ export interface PlatformConfig {
   features: Record<string, boolean>;
 }
 
-const PLATFORM_CONFIG_KEY = 'config:platform';
-
 /** Default photo tips (used as fallback) */
 export const DEFAULT_PHOTO_TIPS: Record<string, string> = {
   bedroom: 'Take a wide-angle photo from the doorway showing the full room. Include any areas needing special attention (under the bed, closet).',
@@ -171,26 +169,7 @@ export const DEFAULT_PHOTO_TIPS: Record<string, string> = {
   other: 'Take a wide shot showing the full space. Point out anything that needs special attention.',
 };
 
-/** Get the merged platform config: admin overrides + defaults */
-export function getPlatformConfig(): PlatformConfig {
-  try {
-    const raw = localStorage.getItem(PLATFORM_CONFIG_KEY);
-    if (raw) {
-      const saved = JSON.parse(raw) as Partial<PlatformConfig>;
-      return {
-        pricing: { ...CONFIG.pricing, ...saved.pricing },
-        geolocation: { ...CONFIG.geolocation, ...saved.geolocation },
-        booking: {
-          minHours: CONFIG.booking.minHours,
-          maxHours: CONFIG.booking.maxHours,
-          advanceBookingDays: CONFIG.booking.advanceBookingDays,
-          ...saved.booking,
-        },
-        photoTips: { ...DEFAULT_PHOTO_TIPS, ...saved.photoTips },
-        features: { ...CONFIG.features, ...saved.features },
-      };
-    }
-  } catch { /* ignore parse errors, fall through to defaults */ }
+function buildDefault(): PlatformConfig {
   return {
     pricing: { ...CONFIG.pricing },
     geolocation: { ...CONFIG.geolocation },
@@ -200,19 +179,66 @@ export function getPlatformConfig(): PlatformConfig {
   };
 }
 
-/** Save admin-edited platform config */
-export function savePlatformConfig(config: PlatformConfig): void {
-  // Keep cleanerPayoutRate in sync with commission
-  config.pricing.cleanerPayoutRate = +(1 - config.pricing.platformCommissionRate).toFixed(4);
-  localStorage.setItem(PLATFORM_CONFIG_KEY, JSON.stringify(config));
+function mergeWithDefaults(saved: Partial<PlatformConfig>): PlatformConfig {
+  return {
+    pricing: { ...CONFIG.pricing, ...saved.pricing },
+    geolocation: { ...CONFIG.geolocation, ...saved.geolocation },
+    booking: {
+      minHours: CONFIG.booking.minHours,
+      maxHours: CONFIG.booking.maxHours,
+      advanceBookingDays: CONFIG.booking.advanceBookingDays,
+      ...saved.booking,
+    },
+    photoTips: { ...DEFAULT_PHOTO_TIPS, ...saved.photoTips },
+    features: { ...CONFIG.features, ...saved.features },
+  };
 }
 
-// Helper function to calculate payment breakdown
-export function calculatePayment(hourlyRate: number, hours: number) {
-  const platformConfig = getPlatformConfig();
+// Module-level cache — populated by loadPlatformConfig()
+let _cachedConfig: PlatformConfig = buildDefault();
+
+/**
+ * Sync getter — returns the in-memory cache.
+ * Always call loadPlatformConfig() at app startup (or on admin mount) to
+ * populate the cache from Firestore before calling this.
+ */
+export function getPlatformConfig(): PlatformConfig {
+  return _cachedConfig;
+}
+
+/**
+ * Fetch platform config from the backend and update the in-memory cache.
+ * Call once on app startup and after saving changes.
+ */
+export async function loadPlatformConfig(): Promise<PlatformConfig> {
+  try {
+    const { adminApi } = await import('./api');
+    const saved = await adminApi.getConfig();
+    if (saved && Object.keys(saved).length > 0) {
+      _cachedConfig = mergeWithDefaults(saved as Partial<PlatformConfig>);
+      return _cachedConfig;
+    }
+  } catch {
+    // Backend unreachable — keep defaults
+  }
+  _cachedConfig = buildDefault();
+  return _cachedConfig;
+}
+
+/** Save admin-edited platform config to Firestore and refresh the cache */
+export async function savePlatformConfig(config: PlatformConfig): Promise<void> {
+  config.pricing.cleanerPayoutRate = +(1 - config.pricing.platformCommissionRate).toFixed(4);
+  const { adminApi } = await import('./api');
+  await adminApi.saveConfig(config);
+  _cachedConfig = config;
+}
+
+// Helper function to calculate payment breakdown (pass config explicitly to avoid async)
+export function calculatePayment(hourlyRate: number, hours: number, platformConfig?: PlatformConfig) {
+  const cfg = platformConfig ?? buildDefault();
   const subtotal = hourlyRate * hours;
-  const platformCommission = subtotal * platformConfig.pricing.platformCommissionRate;
-  const cleanerPayout = subtotal * platformConfig.pricing.cleanerPayoutRate;
+  const platformCommission = subtotal * cfg.pricing.platformCommissionRate;
+  const cleanerPayout = subtotal * cfg.pricing.cleanerPayoutRate;
 
   return {
     subtotal: Math.round(subtotal * 100) / 100,

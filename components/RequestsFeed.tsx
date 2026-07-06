@@ -7,7 +7,7 @@ import VerificationBadge from './VerificationBadge';
 import { NotificationHelpers } from '../utils/notifications';
 import { ExternalNotify } from '../utils/externalNotifications';
 import { notifyAdmin } from '../utils/adminNotifications';
-import { CONFIG, getPlatformConfig } from '../utils/config';
+import { CONFIG, getPlatformConfig, loadPlatformConfig, PlatformConfig } from '../utils/config';
 import { getCleanerPosition, checkProximity, formatDistance, Coordinates } from '../utils/geolocation';
 import {
   Clock, MapPin, Sparkles, User as UserIcon, CheckCircle, Calendar,
@@ -89,6 +89,7 @@ interface Props {
 const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
   const [requests, setRequests] = useState<CleaningRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [platformCfg, setPlatformCfg] = useState<PlatformConfig>(getPlatformConfig());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [homeownerVerifications, setHomeownerVerifications] = useState<Record<string, { email: boolean; phone: boolean; address: boolean }>>({});
@@ -101,6 +102,10 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
   const checkedAddressesRef = useRef<Set<string>>(new Set());
 
   // Get cleaner's GPS position on mount
+  useEffect(() => {
+    loadPlatformConfig().then(setPlatformCfg).catch(() => {});
+  }, []);
+
   useEffect(() => {
     const fetchPosition = async () => {
       try {
@@ -136,7 +141,7 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
         const result = await checkProximity(
           cleanerPosition,
           req.address,
-          getPlatformConfig().geolocation.maxAcceptDistance
+          platformCfg.geolocation.maxAcceptDistance
         );
         newDistances[req.id] = result.distance;
         checkedAddressesRef.current.add(req.id);
@@ -305,7 +310,7 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
           <LocateFixed className="w-5 h-5 text-green-600 flex-shrink-0" />
           <div>
             <p className="text-sm font-semibold text-green-800">Location active</p>
-            <p className="text-xs text-green-600">Distance to jobs shown below. You must be within {getPlatformConfig().geolocation.maxAcceptDistance}m to start cleaning.</p>
+            <p className="text-xs text-green-600">Distance to jobs shown below. You must be within {platformCfg.geolocation.maxAcceptDistance}m to start cleaning.</p>
           </div>
         </div>
       ) : null}
@@ -328,8 +333,8 @@ const RequestsFeed: React.FC<Props> = ({ cleaner }) => {
           const isAccepting = acceptingId === req.id;
           const earnings = calculateEarnings(req.hours);
           const distance = jobDistances[req.id];
-          const isWithinRange = distance !== null && distance !== undefined && distance <= getPlatformConfig().geolocation.maxAcceptDistance;
-          const isTooFar = distance !== null && distance !== undefined && distance > getPlatformConfig().geolocation.maxAcceptDistance;
+          const isWithinRange = distance !== null && distance !== undefined && distance <= platformCfg.geolocation.maxAcceptDistance;
+          const isTooFar = distance !== null && distance !== undefined && distance > platformCfg.geolocation.maxAcceptDistance;
           const distanceUnknown = distance === null || distance === undefined;
 
           return (

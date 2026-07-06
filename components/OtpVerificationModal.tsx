@@ -1,48 +1,63 @@
-
-import React, { useState, useRef, useEffect } from 'react';
-import { X, CheckCircle, AlertCircle, Mail, Phone, Loader2 } from 'lucide-react';
+import React, { useState, useRef, useEffect } from "react";
+import {
+  X,
+  CheckCircle,
+  AlertCircle,
+  Mail,
+  Phone,
+  Loader2,
+} from "lucide-react";
 
 interface OtpVerificationModalProps {
-  type: 'email' | 'phone';
+  type: "email" | "phone";
   target: string;
   onVerify: () => void;
   onClose: () => void;
 }
 
-const OTP_API = (process.env.VITE_API_URL || process.env.API_URL || 'http://localhost:3001') + '/api/otp';
+const OTP_API =
+  (process.env.VITE_API_URL || process.env.API_URL || "http://localhost:3001") +
+  "/api/otp";
 
-const OtpVerificationModal: React.FC<OtpVerificationModalProps> = ({ type, target, onVerify, onClose }) => {
-  const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
-  const [error, setError] = useState('');
-  const [step, setStep] = useState<'sending' | 'input' | 'verifying' | 'success'>('sending');
+const OtpVerificationModal: React.FC<OtpVerificationModalProps> = ({
+  type,
+  target,
+  onVerify,
+  onClose,
+}) => {
+  const [digits, setDigits] = useState<string[]>(["", "", "", "", "", ""]);
+  const [error, setError] = useState("");
+  const [step, setStep] = useState<
+    "sending" | "input" | "verifying" | "success"
+  >("sending");
   const [otpId, setOtpId] = useState<string | null>(null);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
     // Request OTP from server as soon as modal opens
     fetch(`${OTP_API}/send`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ target, type }),
     })
-      .then(r => r.json())
-      .then(data => {
+      .then((r) => r.json())
+      .then((data) => {
         if (data.otpId) {
           setOtpId(data.otpId);
-          setStep('input');
+          setStep("input");
         } else {
-          setError('Failed to send verification code. Please try again.');
-          setStep('input');
+          setError("Failed to send verification code. Please try again.");
+          setStep("input");
         }
       })
       .catch(() => {
-        setError('Could not reach verification server. Please try again.');
-        setStep('input');
+        setError("Could not reach verification server. Please try again.");
+        setStep("input");
       });
   }, [target, type]);
 
   useEffect(() => {
-    if (step === 'input') inputRefs.current[0]?.focus();
+    if (step === "input") inputRefs.current[0]?.focus();
   }, [step]);
 
   const handleDigitChange = (index: number, value: string) => {
@@ -51,7 +66,7 @@ const OtpVerificationModal: React.FC<OtpVerificationModalProps> = ({ type, targe
     const newDigits = [...digits];
     newDigits[index] = value.slice(-1);
     setDigits(newDigits);
-    setError('');
+    setError("");
 
     if (value && index < 5) {
       inputRefs.current[index + 1]?.focus();
@@ -59,77 +74,88 @@ const OtpVerificationModal: React.FC<OtpVerificationModalProps> = ({ type, targe
   };
 
   const handleKeyDown = (index: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace' && !digits[index] && index > 0) {
+    if (e.key === "Backspace" && !digits[index] && index > 0) {
       inputRefs.current[index - 1]?.focus();
     }
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
     e.preventDefault();
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    const pasted = e.clipboardData
+      .getData("text")
+      .replace(/\D/g, "")
+      .slice(0, 6);
     if (pasted.length === 6) {
-      setDigits(pasted.split(''));
+      setDigits(pasted.split(""));
       inputRefs.current[5]?.focus();
     }
   };
 
   const handleSubmit = async () => {
-    const code = digits.join('');
+    const code = digits.join("");
     if (code.length < 6) {
-      setError('Please enter all 6 digits');
+      setError("Please enter all 6 digits");
       return;
     }
     if (!otpId) {
-      setError('Verification session expired. Please close and try again.');
+      setError("Verification session expired. Please close and try again.");
       return;
     }
 
-    setStep('verifying');
+    setStep("verifying");
 
     try {
       const res = await fetch(`${OTP_API}/verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ otpId, code }),
       });
       const data = await res.json();
       if (data.valid) {
-        setStep('success');
+        setStep("success");
         setTimeout(() => onVerify(), 1500);
       } else {
-        setStep('input');
-        setError(data.error || 'Invalid verification code. Please try again.');
-        setDigits(['', '', '', '', '', '']);
+        setStep("input");
+        setError(data.error || "Invalid verification code. Please try again.");
+        setDigits(["", "", "", "", "", ""]);
         inputRefs.current[0]?.focus();
       }
     } catch {
-      setStep('input');
-      setError('Could not verify code. Please try again.');
-      setDigits(['', '', '', '', '', '']);
+      setStep("input");
+      setError("Could not verify code. Please try again.");
+      setDigits(["", "", "", "", "", ""]);
     }
   };
 
-  const Icon = type === 'email' ? Mail : Phone;
+  const Icon = type === "email" ? Mail : Phone;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={step === 'input' ? onClose : undefined} />
+      <div
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        onClick={step === "input" ? onClose : undefined}
+      />
 
       <div className="relative bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 animate-in zoom-in-95 fade-in duration-200">
-        {step !== 'verifying' && step !== 'success' && (
-          <button onClick={onClose} className="absolute top-4 right-4 p-1 text-gray-400 hover:text-gray-600">
+        {step !== "verifying" && step !== "success" && (
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 p-1 text-gray-400 hover:text-gray-600"
+          >
             <X className="w-5 h-5" />
           </button>
         )}
 
-        {step === 'sending' && (
+        {step === "sending" && (
           <div className="text-center py-8">
             <Loader2 className="w-10 h-10 text-purple-600 animate-spin mx-auto mb-4" />
-            <p className="text-gray-600 font-medium">Sending verification code...</p>
+            <p className="text-gray-600 font-medium">
+              Sending verification code...
+            </p>
           </div>
         )}
 
-        {step === 'input' && (
+        {step === "input" && (
           <>
             <div className="text-center mb-6">
               <div className="w-14 h-14 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -145,19 +171,24 @@ const OtpVerificationModal: React.FC<OtpVerificationModalProps> = ({ type, targe
             </div>
 
             {/* OTP Input */}
-            <div className="flex justify-center gap-2 mb-5" onPaste={handlePaste}>
+            <div
+              className="flex justify-center gap-2 mb-5"
+              onPaste={handlePaste}
+            >
               {digits.map((digit, i) => (
                 <input
                   key={i}
-                  ref={el => { inputRefs.current[i] = el; }}
+                  ref={(el: HTMLInputElement | null) => {
+                    inputRefs.current[i] = el;
+                  }}
                   type="text"
                   inputMode="numeric"
                   maxLength={1}
                   value={digit}
-                  onChange={e => handleDigitChange(i, e.target.value)}
-                  onKeyDown={e => handleKeyDown(i, e)}
+                  onChange={(e) => handleDigitChange(i, e.target.value)}
+                  onKeyDown={(e) => handleKeyDown(i, e)}
                   className={`w-12 h-14 text-center text-xl font-bold border-2 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-colors ${
-                    error ? 'border-red-300' : 'border-gray-200'
+                    error ? "border-red-300" : "border-gray-200"
                   }`}
                 />
               ))}
@@ -175,27 +206,32 @@ const OtpVerificationModal: React.FC<OtpVerificationModalProps> = ({ type, targe
             </button>
 
             <p className="text-xs text-gray-400 text-center mt-4">
-              Didn't receive the code? <button className="text-purple-600 font-semibold hover:underline">Resend</button>
+              Didn't receive the code?{" "}
+              <button className="text-purple-600 font-semibold hover:underline">
+                Resend
+              </button>
             </p>
           </>
         )}
 
-        {step === 'verifying' && (
+        {step === "verifying" && (
           <div className="text-center py-8">
             <Loader2 className="w-10 h-10 text-purple-600 animate-spin mx-auto mb-4" />
             <p className="text-gray-600 font-medium">Verifying...</p>
           </div>
         )}
 
-        {step === 'success' && (
+        {step === "success" && (
           <div className="text-center py-8">
             <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <CheckCircle className="w-8 h-8 text-green-600" />
             </div>
             <h3 className="text-xl font-bold font-outfit text-gray-900 mb-1">
-              {type === 'email' ? 'Email' : 'Phone'} Verified!
+              {type === "email" ? "Email" : "Phone"} Verified!
             </h3>
-            <p className="text-sm text-gray-500">Your {type} has been successfully verified.</p>
+            <p className="text-sm text-gray-500">
+              Your {type} has been successfully verified.
+            </p>
           </div>
         )}
       </div>

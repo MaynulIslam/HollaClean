@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Input } from './UI';
-import { PlatformConfig, getPlatformConfig, savePlatformConfig, DEFAULT_PHOTO_TIPS } from '../utils/config';
+import { PlatformConfig, loadPlatformConfig, savePlatformConfig, DEFAULT_PHOTO_TIPS } from '../utils/config';
 import {
   Save, DollarSign, MapPin, Calendar, Image as ImageIcon,
   ToggleLeft, ToggleRight, Zap, Info, CheckCircle, RotateCcw,
@@ -29,30 +29,40 @@ const photoTipLabels: Record<string, string> = {
 };
 
 const AdminSettings: React.FC = () => {
-  const [config, setConfig] = useState<PlatformConfig>(getPlatformConfig());
+  const [config, setConfig] = useState<PlatformConfig | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [section, setSection] = useState<'pricing' | 'geolocation' | 'booking' | 'photos' | 'features'>('pricing');
 
-  const handleSave = () => {
-    setSaving(true);
-    savePlatformConfig(config);
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
-  };
+  useEffect(() => {
+    loadPlatformConfig().then(setConfig);
+  }, []);
 
-  const handleReset = (sectionKey: string) => {
-    if (!window.confirm(`Reset ${sectionKey} settings to defaults?`)) return;
-    const defaults = getPlatformConfig();
-    // Remove any saved config so defaults load
-    if (sectionKey === 'all') {
-      localStorage.removeItem('config:platform');
-      setConfig(getPlatformConfig());
-    } else {
-      setConfig({ ...config, [sectionKey]: (defaults as any)[sectionKey] });
+  const handleSave = async () => {
+    if (!config) return;
+    setSaving(true);
+    try {
+      await savePlatformConfig(config);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } finally {
+      setSaving(false);
     }
   };
+
+  const handleReset = async (sectionKey: string) => {
+    if (!window.confirm(`Reset ${sectionKey} settings to defaults?`)) return;
+    const defaults = await loadPlatformConfig();
+    if (sectionKey === 'all') {
+      setConfig(defaults);
+    } else {
+      setConfig(prev => prev ? { ...prev, [sectionKey]: (defaults as any)[sectionKey] } : defaults);
+    }
+  };
+
+  if (!config) {
+    return <div className="text-center py-12 text-gray-400">Loading settings…</div>;
+  }
 
   const sections = [
     { id: 'pricing', label: 'Pricing', icon: DollarSign },
