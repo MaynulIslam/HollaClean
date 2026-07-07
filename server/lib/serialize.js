@@ -1,6 +1,8 @@
 const { toISO } = require('./db');
 
-function serializeRequest(r) {
+// `withImages: false` omits the (potentially large, base64) photos — used for
+// list/feed endpoints so payloads stay small. Detail endpoints keep them.
+function serializeRequest(r, { withImages = true } = {}) {
   if (!r) return r;
   const homeowner = r.homeowner || {};
   const cleaner = r.cleaner || null;
@@ -17,8 +19,9 @@ function serializeRequest(r) {
     hours: r.hours,
     address: r.address,
     instructions: r.instructions || '',
-    images: r.images || [],
-    roomImages: r.roomImages || undefined,
+    images: withImages ? (r.images || []) : [],
+    imageCount: Array.isArray(r.images) ? r.images.length : 0,
+    roomImages: withImages ? (r.roomImages || undefined) : undefined,
 
     status: r.status,
 

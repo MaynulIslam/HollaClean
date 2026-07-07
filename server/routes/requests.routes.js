@@ -92,7 +92,7 @@ router.get('/open', requireAuth, async (req, res) => {
       .get();
     const rows = snapshotToArray(snapshot);
     const enriched = await Promise.all(rows.map(attachParties));
-    res.json({ requests: enriched.map(serializeRequest) });
+    res.json({ requests: enriched.map((r) => serializeRequest(r, { withImages: false })) });
   } catch (err) {
     console.error('list open requests error:', err);
     res.status(500).json({ error: 'Failed to load requests' });
@@ -108,7 +108,7 @@ router.get('/mine', requireAuth, async (req, res) => {
       .get();
     const rows = snapshotToArray(snapshot);
     const enriched = await Promise.all(rows.map(attachParties));
-    res.json({ requests: enriched.map(serializeRequest) });
+    res.json({ requests: enriched.map((r) => serializeRequest(r, { withImages: false })) });
   } catch (err) {
     console.error('list my requests error:', err);
     res.status(500).json({ error: 'Failed to load requests' });
@@ -124,7 +124,7 @@ router.get('/jobs', requireAuth, async (req, res) => {
       .get();
     const rows = snapshotToArray(snapshot);
     const enriched = await Promise.all(rows.map(attachParties));
-    res.json({ requests: enriched.map(serializeRequest) });
+    res.json({ requests: enriched.map((r) => serializeRequest(r, { withImages: false })) });
   } catch (err) {
     console.error('list jobs error:', err);
     res.status(500).json({ error: 'Failed to load jobs' });
@@ -337,6 +337,201 @@ router.post('/:id/location-approval', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('location approval error:', err);
     res.status(500).json({ error: 'Failed to request location approval' });
+  }
+});
+
+// ─── Offers (name-your-price negotiation) ───────────────────────────────────
+//
+// A cleaner responds to an open job by either accepting the customer's base
+// price or countering with their own. The customer reviews the offers and
+// accepts one, which assigns the cleaner and locks in the money (recomputed
+// server-side from the agreed price).
+
+function serializeOffer(o, cleaner) {
+  let pricing = null;
+  try {
+    pricing = computeJobPricing(o.price);
+  } catch (_) {
+    /* below-minimum legacy data — leave money fields null */
+  }
+  return {
+    id: o.id,
+    requestId: o.requestId,
+    cleanerId: o.cleanerId,
+    cleanerName: cleaner ? cleaner.name || '' : '',
+    cleanerRating: cleaner && cleaner.rating != null ? cleaner.rating : null,
+    cleanerReviewCount: cleaner && cleaner.reviewCount != null ? cleaner.reviewCount : 0,
+    price: o.price,
+    type: o.type, // 'accept' | 'counter'
+    status: o.status, // 'pending' | 'accepted' | 'declined'
+    customerTotal: pricing ? pricing.totalAmount : null,
+    cleanerPayout: pricing ? pricing.cleanerPayout : null,
+    createdAt: toISOOffer(o.createdAt),
+  };
+}
+
+function toISOOffer(val) {
+  if (!val) return null;
+  if (typeof val.toDate === 'function') return val.toDate().toISOString();
+  if (typeof val.toISOString === 'function') return val.toISOString();
+  return String(val);
+}
+
+// POST /api/requests/:id/offers — cleaner accepts at base or counters
+router.post('/:id/offers', requireAuth, async (req, res) => {
+  try {
+    if (req.user.type !== 'cleaner') {
+      return res.status(403).json({ error: 'Only cleaners can make offers' });
+    }
+    const job = docToObj(await db.collection('requests').doc(req.params.id).get());
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (job.status !== 'open') {
+      return res.status(409).json({ error: 'This job is no longer open' });
+    }
+
+    const b = req.body || {};
+    const type = b.type === 'counter' ? 'counter' : 'accept';
+    const rawPrice = type === 'accept' ? job.basePrice : Number(b.price);
+    if (rawPrice == null) {
+      return res.status(400).json({ error: 'This job has no base price; send a counter price' });
+    }
+
+    let pricing;
+    try {
+      pricing = computeJobPricing(rawPrice);
+    } catch (e) {
+      if (e.code === 'BASE_PRICE_TOO_LOW') return res.status(400).json({ error: e.message });
+      throw e;
+    }
+
+    // One active offer per cleaner per job — replace any previous pending one.
+    const existingSnap = await db.collection('offers')
+      .where('requestId', '==', req.params.id)
+      .where('cleanerId', '==', req.user.id)
+      .get();
+    const pendingExisting = existingSnap.docs.find((d) => d.data().status === 'pending');
+
+    const now = new Date();
+    let offerId;
+    if (pendingExisting) {
+      offerId = pendingExisting.id;
+      await pendingExisting.ref.update({ price: pricing.basePrice, type, updatedAt: now });
+    } else {
+      offerId = uuid();
+      await db.collection('offers').doc(offerId).set({
+        requestId: req.params.id,
+        cleanerId: req.user.id,
+        price: pricing.basePrice,
+        type,
+        status: 'pending',
+        createdAt: now,
+      });
+    }
+
+    const cleanerDoc = await db.collection('users').doc(req.user.id).get();
+    const saved = docToObj(await db.collection('offers').doc(offerId).get());
+    res.status(201).json({
+      offer: serializeOffer(saved, cleanerDoc.exists ? cleanerDoc.data() : null),
+    });
+  } catch (err) {
+    console.error('create offer error:', err);
+    res.status(500).json({ error: 'Failed to submit offer' });
+  }
+});
+
+// GET /api/requests/:id/offers — owner/admin see all; a cleaner sees their own
+router.get('/:id/offers', requireAuth, async (req, res) => {
+  try {
+    const job = docToObj(await db.collection('requests').doc(req.params.id).get());
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+
+    const u = req.user;
+    const isOwner = job.homeownerId === u.id || u.type === 'admin';
+    if (!isOwner && u.type !== 'cleaner') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    let query = db.collection('offers').where('requestId', '==', req.params.id);
+    if (!isOwner) query = query.where('cleanerId', '==', u.id);
+    const snap = await query.get();
+    const rows = snapshotToArray(snap).sort(
+      (a, b) => new Date(toISOOffer(b.createdAt)) - new Date(toISOOffer(a.createdAt))
+    );
+
+    const offers = await Promise.all(
+      rows.map(async (o) => {
+        const cleanerDoc = await db.collection('users').doc(o.cleanerId).get();
+        return serializeOffer(o, cleanerDoc.exists ? cleanerDoc.data() : null);
+      })
+    );
+    res.json({ offers });
+  } catch (err) {
+    console.error('list offers error:', err);
+    res.status(500).json({ error: 'Failed to load offers' });
+  }
+});
+
+// POST /api/requests/:id/offers/:offerId/accept — customer picks an offer
+router.post('/:id/offers/:offerId/accept', requireAuth, async (req, res) => {
+  try {
+    const requestRef = db.collection('requests').doc(req.params.id);
+    const offerRef = db.collection('offers').doc(req.params.offerId);
+
+    await db.runTransaction(async (transaction) => {
+      const jobDoc = await transaction.get(requestRef);
+      if (!jobDoc.exists) throw new Error('NOT_FOUND');
+      const job = jobDoc.data();
+      if (job.homeownerId !== req.user.id && req.user.type !== 'admin') {
+        throw new Error('FORBIDDEN');
+      }
+      if (job.status !== 'open') throw new Error('NOT_OPEN');
+
+      const offerDoc = await transaction.get(offerRef);
+      if (!offerDoc.exists) throw new Error('OFFER_NOT_FOUND');
+      const offer = offerDoc.data();
+      if (offer.requestId !== req.params.id || offer.status !== 'pending') {
+        throw new Error('OFFER_NOT_PENDING');
+      }
+
+      // Money is locked in from the AGREED price, recomputed server-side.
+      const pricing = computeJobPricing(offer.price);
+
+      transaction.update(requestRef, {
+        cleanerId: offer.cleanerId,
+        status: 'accepted',
+        acceptedAt: new Date(),
+        basePrice: pricing.basePrice,
+        taxRate: pricing.taxRate,
+        taxAmount: pricing.taxAmount,
+        totalAmount: pricing.totalAmount,
+        platformCommission: pricing.platformCommission,
+        cleanerPayout: pricing.cleanerPayout,
+        paymentStatus: 'awaiting',
+      });
+      transaction.update(offerRef, { status: 'accepted', decidedAt: new Date() });
+    });
+
+    // Decline all other pending offers on this job (outside the transaction).
+    const others = await db.collection('offers')
+      .where('requestId', '==', req.params.id)
+      .get();
+    await Promise.all(
+      others.docs
+        .filter((d) => d.id !== req.params.offerId && d.data().status === 'pending')
+        .map((d) => d.ref.update({ status: 'declined', decidedAt: new Date() }))
+    );
+
+    const updated = docToObj(await requestRef.get());
+    const enriched = await attachParties(updated);
+    res.json({ request: serializeRequest(enriched) });
+  } catch (err) {
+    if (err.message === 'NOT_FOUND') return res.status(404).json({ error: 'Job not found' });
+    if (err.message === 'OFFER_NOT_FOUND') return res.status(404).json({ error: 'Offer not found' });
+    if (err.message === 'FORBIDDEN') return res.status(403).json({ error: 'Only the job owner can accept offers' });
+    if (err.message === 'NOT_OPEN') return res.status(409).json({ error: 'This job is no longer open' });
+    if (err.message === 'OFFER_NOT_PENDING') return res.status(409).json({ error: 'This offer is no longer available' });
+    console.error('accept offer error:', err);
+    res.status(500).json({ error: 'Failed to accept offer' });
   }
 });
 

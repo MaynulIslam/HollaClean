@@ -1,0 +1,19 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Job photos uploaded by customers so cleaners can see what needs cleaning.
+    match /job_photos/{userId}/{fileName} {
+      // Any signed-in user can view (cleaners need to see the photos).
+      allow read: if request.auth != null;
+      // Only the owner can upload to their own folder; images only, max 5 MB.
+      allow write: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+    // Everything else is denied by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

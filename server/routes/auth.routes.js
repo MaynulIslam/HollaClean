@@ -54,6 +54,7 @@ router.post('/register', async (req, res) => {
       apartment: rest.apartment || null,
       city: rest.city || null,
       province: rest.province || null,
+      postalCode: rest.postalCode || null,
       country: rest.country || 'Canada',
     };
 

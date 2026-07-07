@@ -42,11 +42,13 @@ function corsOrigin(origin, callback) {
 
 app.use(cors({ origin: corsOrigin, credentials: true }));
 
+// Larger limit so jobs with inline (base64) photos aren't rejected as 413.
+const jsonParser = express.json({ limit: '15mb' });
 app.use((req, res, next) => {
   if (req.originalUrl === '/api/webhooks/stripe') {
     next();
   } else {
-    express.json()(req, res, next);
+    jsonParser(req, res, next);
   }
 });
 

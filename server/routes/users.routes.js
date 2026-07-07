@@ -5,7 +5,7 @@ const { requireAuth, sanitizeUser } = require('../lib/auth');
 const router = express.Router();
 
 const SELF_EDITABLE = [
-  'name', 'phone', 'address', 'streetAddress', 'apartment', 'city', 'province', 'country',
+  'name', 'phone', 'address', 'streetAddress', 'apartment', 'city', 'province', 'postalCode', 'country',
   'photoURL', 'profileComplete',
   'bio', 'hourlyRate', 'experience', 'services', 'isAvailable',
 ];
