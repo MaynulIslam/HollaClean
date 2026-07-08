@@ -1,7 +1,7 @@
 const express = require('express');
 const { db, docToObj, snapshotToArray, attachParties } = require('../lib/db');
 const { requireAuth } = require('../lib/auth');
-const { computePricing, computeJobPricing } = require('../lib/pricing');
+const { computePricing, computeJobPricing, JOB_PRICING, round2 } = require('../lib/pricing');
 const { serializeRequest } = require('../lib/serialize');
 const { v4: uuid } = require('uuid');
 
@@ -36,6 +36,14 @@ router.post('/', requireAuth, async (req, res) => {
       }
     }
 
+    // Structured location for filtering. Defaults to the customer's profile
+    // address if the request didn't specify a different one.
+    const ownerDoc = await db.collection('users').doc(req.user.id).get();
+    const owner = ownerDoc.exists ? ownerDoc.data() : {};
+    const city = (b.city != null ? b.city : owner.city) || null;
+    const province = (b.province != null ? b.province : owner.province) || null;
+    const country = (b.country != null ? b.country : owner.country) || 'Canada';
+
     const data = {
       homeownerId: req.user.id,
       serviceType: String(b.serviceType),
@@ -43,6 +51,9 @@ router.post('/', requireAuth, async (req, res) => {
       time: String(b.time),
       hours,
       address: String(b.address),
+      city,
+      province,
+      country,
       instructions: b.instructions || null,
       images: Array.isArray(b.images) ? b.images : [],
       roomImages: b.roomImages || null,
@@ -83,14 +94,29 @@ router.post('/', requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/requests/open
+// Case-insensitive location match. A cleaner sees a job when their city,
+// province and country match. Missing values are permissive so incomplete
+// profiles / legacy jobs aren't hidden entirely.
+function sameLocation(job, loc) {
+  const eq = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+  if (!loc.city) return true;      // cleaner hasn't set a city → show all
+  if (!job.city) return true;      // legacy job with no city → visible to all
+  return eq(job.city, loc.city)
+    && eq(job.province, loc.province)
+    && eq(job.country || 'Canada', loc.country || 'Canada');
+}
+
+// GET /api/requests/open — open jobs in the cleaner's city/province/country.
 router.get('/open', requireAuth, async (req, res) => {
   try {
+    const cleanerDoc = await db.collection('users').doc(req.user.id).get();
+    const loc = cleanerDoc.exists ? cleanerDoc.data() : {};
+
     const snapshot = await db.collection('requests')
       .where('status', '==', 'open')
       .orderBy('createdAt', 'desc')
       .get();
-    const rows = snapshotToArray(snapshot);
+    const rows = snapshotToArray(snapshot).filter((r) => sameLocation(r, loc));
     const enriched = await Promise.all(rows.map(attachParties));
     res.json({ requests: enriched.map((r) => serializeRequest(r, { withImages: false })) });
   } catch (err) {
@@ -127,6 +153,50 @@ router.get('/jobs', requireAuth, async (req, res) => {
     res.json({ requests: enriched.map((r) => serializeRequest(r, { withImages: false })) });
   } catch (err) {
     console.error('list jobs error:', err);
+    res.status(500).json({ error: 'Failed to load jobs' });
+  }
+});
+
+// GET /api/requests/jobs/in-progress — cleaner's "in progress": jobs they've
+// offered on (pending, still open) plus jobs assigned to them and not finished.
+router.get('/jobs/in-progress', requireAuth, async (req, res) => {
+  try {
+    if (req.user.type !== 'cleaner') {
+      return res.status(403).json({ error: 'Cleaners only' });
+    }
+    const activeAssigned = ['accepted', 'in_progress', 'awaiting_payment'];
+
+    // 1. Jobs assigned to me that aren't finished.
+    const assignedSnap = await db.collection('requests')
+      .where('cleanerId', '==', req.user.id)
+      .get();
+    const byId = new Map();
+    for (const doc of assignedSnap.docs) {
+      const r = { id: doc.id, ...doc.data() };
+      if (activeAssigned.includes(r.status)) byId.set(r.id, r);
+    }
+
+    // 2. Open jobs I have a pending offer on (accepted their price or countered).
+    const offersSnap = await db.collection('offers')
+      .where('cleanerId', '==', req.user.id)
+      .where('status', '==', 'pending')
+      .get();
+    const offeredIds = [...new Set(offersSnap.docs.map((d) => d.data().requestId))];
+    await Promise.all(offeredIds.map(async (rid) => {
+      if (byId.has(rid)) return;
+      const doc = await db.collection('requests').doc(rid).get();
+      if (doc.exists && doc.data().status === 'open') {
+        byId.set(rid, { id: doc.id, ...doc.data() });
+      }
+    }));
+
+    const rows = [...byId.values()].sort(
+      (a, b) => new Date(toISOOffer(b.createdAt)) - new Date(toISOOffer(a.createdAt))
+    );
+    const enriched = await Promise.all(rows.map(attachParties));
+    res.json({ requests: enriched.map((r) => serializeRequest(r, { withImages: false })) });
+  } catch (err) {
+    console.error('list in-progress jobs error:', err);
     res.status(500).json({ error: 'Failed to load jobs' });
   }
 });
@@ -266,6 +336,102 @@ router.patch('/:id/status', requireAuth, async (req, res) => {
   }
 });
 
+// PATCH /api/requests/:id — the customer edits their own request, only while
+// it's open AND no cleaner has responded yet (no offers). Once there's any
+// offer (counter or accept) or it's assigned, editing is blocked.
+router.patch('/:id', requireAuth, async (req, res) => {
+  try {
+    const ref = db.collection('requests').doc(req.params.id);
+    const r = docToObj(await ref.get());
+    if (!r) return res.status(404).json({ error: 'Request not found' });
+    if (r.homeownerId !== req.user.id) {
+      return res.status(403).json({ error: 'You can only edit your own request' });
+    }
+    if (r.status !== 'open') {
+      return res.status(409).json({ error: 'This request can no longer be edited' });
+    }
+    const offersSnap = await db.collection('offers')
+      .where('requestId', '==', req.params.id)
+      .limit(1)
+      .get();
+    if (!offersSnap.empty) {
+      return res.status(409).json({
+        error: 'A cleaner has already responded — cancel and repost to change it.',
+      });
+    }
+
+    const b = req.body || {};
+    const data = {};
+    if (b.serviceType) data.serviceType = String(b.serviceType);
+    if (b.date) data.date = String(b.date);
+    if (b.time) data.time = String(b.time);
+    if (b.address) data.address = String(b.address);
+    if (b.instructions !== undefined) data.instructions = b.instructions || null;
+    if (Array.isArray(b.images)) data.images = b.images;
+    if (b.basePrice != null) {
+      try {
+        const p = computeJobPricing(Number(b.basePrice));
+        data.basePrice = p.basePrice;
+        data.taxRate = p.taxRate;
+        data.taxAmount = p.taxAmount;
+        data.totalAmount = p.totalAmount;
+        data.platformCommission = p.platformCommission;
+        data.cleanerPayout = p.cleanerPayout;
+      } catch (e) {
+        if (e.code === 'BASE_PRICE_TOO_LOW') return res.status(400).json({ error: e.message });
+        throw e;
+      }
+    }
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({ error: 'Nothing to update' });
+    }
+
+    await ref.update(data);
+    const updated = docToObj(await ref.get());
+    const enriched = await attachParties(updated);
+    res.json({ request: serializeRequest(enriched) });
+  } catch (err) {
+    console.error('edit request error:', err);
+    res.status(500).json({ error: 'Failed to update request' });
+  }
+});
+
+// POST /api/requests/:id/cancel — the customer cancels their own request,
+// only while it's still open (before any cleaner is accepted). Cleaners cannot
+// cancel.
+router.post('/:id/cancel', requireAuth, async (req, res) => {
+  try {
+    const ref = db.collection('requests').doc(req.params.id);
+    const r = docToObj(await ref.get());
+    if (!r) return res.status(404).json({ error: 'Request not found' });
+    if (r.homeownerId !== req.user.id) {
+      return res.status(403).json({ error: 'Only the customer who posted this can cancel it' });
+    }
+    if (r.status !== 'open') {
+      return res.status(409).json({ error: 'This request can no longer be cancelled' });
+    }
+
+    await ref.update({ status: 'cancelled', cancelledAt: new Date() });
+
+    // Decline any pending offers on it.
+    const offersSnap = await db.collection('offers')
+      .where('requestId', '==', req.params.id)
+      .get();
+    await Promise.all(
+      offersSnap.docs
+        .filter((d) => d.data().status === 'pending')
+        .map((d) => d.ref.update({ status: 'declined', decidedAt: new Date() }))
+    );
+
+    const updated = docToObj(await ref.get());
+    const enriched = await attachParties(updated);
+    res.json({ request: serializeRequest(enriched) });
+  } catch (err) {
+    console.error('cancel request error:', err);
+    res.status(500).json({ error: 'Failed to cancel request' });
+  }
+});
+
 // POST /api/requests/:id/release
 router.post('/:id/release', requireAuth, async (req, res) => {
   try {
@@ -391,16 +557,33 @@ router.post('/:id/offers', requireAuth, async (req, res) => {
 
     const b = req.body || {};
     const type = b.type === 'counter' ? 'counter' : 'accept';
-    const rawPrice = type === 'accept' ? job.basePrice : Number(b.price);
-    if (rawPrice == null) {
-      return res.status(400).json({ error: 'This job has no base price; send a counter price' });
+
+    // The cleaner thinks in take-home dollars. On accept, they take the
+    // customer's base price (earning base − commission). On a counter, the
+    // number they send is their DESIRED TAKE-HOME, which we gross up into a
+    // base price so the platform fee + tax land on top for the customer.
+    let base;
+    if (type === 'accept') {
+      if (job.basePrice == null) {
+        return res.status(400).json({ error: 'This job has no price to accept' });
+      }
+      base = job.basePrice;
+    } else {
+      const takeHome = Number(b.price);
+      if (!(takeHome > 0)) {
+        return res.status(400).json({ error: 'Enter the amount you want to earn' });
+      }
+      base = round2(takeHome / (1 - JOB_PRICING.commissionRate));
     }
 
     let pricing;
     try {
-      pricing = computeJobPricing(rawPrice);
+      pricing = computeJobPricing(base);
     } catch (e) {
-      if (e.code === 'BASE_PRICE_TOO_LOW') return res.status(400).json({ error: e.message });
+      if (e.code === 'BASE_PRICE_TOO_LOW') {
+        const minEarn = round2(JOB_PRICING.minBasePrice * (1 - JOB_PRICING.commissionRate));
+        return res.status(400).json({ error: `Your earnings must be at least $${minEarn}` });
+      }
       throw e;
     }
 

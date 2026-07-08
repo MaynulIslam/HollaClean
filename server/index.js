@@ -125,6 +125,7 @@ app.use('/api/requests', require('./routes/requests.routes'));
 app.use('/api/users', require('./routes/users.routes'));
 app.use('/api/reviews', require('./routes/reviews.routes'));
 app.use('/api/services', require('./routes/services.routes'));
+app.use('/api/cities', require('./routes/cities.routes'));
 app.use('/api/admin', require('./routes/admin.routes'));
 
 // ==================== OTP ====================
